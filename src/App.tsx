@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { saveAs } from "file-saver";
 import { GameState, Character, HistoryTurn } from "./types";
 import CharacterCreator from "./components/CharacterCreator";
 import GameScreen from "./components/GameScreen";
@@ -309,15 +310,10 @@ export default function App() {
       };
 
       const dataStr = JSON.stringify(backupData, null, 2);
-      const dataUri =
-        "data:application/json;charset=utf-8," + encodeURIComponent(dataStr);
-
+      const blob = new Blob([dataStr], { type: "application/json;charset=utf-8" });
       const exportFileDefaultName = `ai_trpg_backup_${new Date().toISOString().slice(0, 10)}.json`;
 
-      const linkElement = document.createElement("a");
-      linkElement.setAttribute("href", dataUri);
-      linkElement.setAttribute("download", exportFileDefaultName);
-      linkElement.click();
+      saveAs(blob, exportFileDefaultName);
     } catch (err) {
       alert("导出存档失败：" + err);
     }
