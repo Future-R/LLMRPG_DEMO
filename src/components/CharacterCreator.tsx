@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { saveAs } from "file-saver";
 import { PRESET_GENRES, PERSONALITIES, Character, Attributes } from "../types";
 import { negotiateCharacterAPI, generateEventAPI } from "../lib/api";
 import { Sparkles, MessageSquare, Check, RotateCcw, Plus, Trash, ArrowRight, User, BookOpen, Star, Briefcase, Scroll, RefreshCw } from "lucide-react";
@@ -52,13 +53,9 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
         inventory,
         selectedPersonality
       };
-      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(setupData, null, 2));
-      const downloadAnchor = document.createElement("a");
-      downloadAnchor.setAttribute("href", dataStr);
-      downloadAnchor.setAttribute("download", `trpg_setup_${charName || "冒险者"}.json`);
-      document.body.appendChild(downloadAnchor);
-      downloadAnchor.click();
-      downloadAnchor.remove();
+      const dataStr = JSON.stringify(setupData, null, 2);
+      const blob = new Blob([dataStr], { type: "application/json;charset=utf-8" });
+      saveAs(blob, `trpg_setup_${charName || "冒险者"}.json`);
     } catch (err) {
       alert("导出配置失败，请重试。");
     }
