@@ -1,0 +1,6 @@
+{
+  "name": "AI跑团模拟器与文字RPG游戏框架",
+  "description": "一个功能完备的简体中文文字角色扮演游戏框架与单人跑团AI主持人。支持自定义背景协商、属性点分配、动态剧情生成、推荐行动选项以及真实的DND骰点机制。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

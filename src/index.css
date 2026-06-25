@@ -1,0 +1,6 @@
+@import "tailwindcss";
+
+/* 禁用整个应用中所有的斜体样式，提高中文字符的可读性与美观度 */
+em, i, .italic, .prose em, .prose blockquote p {
+  font-style: normal !important;
+}
