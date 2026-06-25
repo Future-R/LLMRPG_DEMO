@@ -43,7 +43,9 @@ export default function App() {
 
   // Archive Slots
   const [hasAutosave, setHasAutosave] = useState(false);
-  const [manualSaveData, setManualSaveData] = useState<any>(null);
+  const [manualSaves, setManualSaves] = useState<(any | null)[]>(
+    new Array(9).fill(null)
+  );
   const [showArchivedSaves, setShowArchivedSaves] = useState(false);
 
   // Custom Confirmation Dialog State
@@ -162,12 +164,19 @@ export default function App() {
       const autosave = localStorage.getItem("trpg_autosave");
       setHasAutosave(!!autosave);
 
-      const manualSave = localStorage.getItem("trpg_manual_save");
-      if (manualSave) {
-        setManualSaveData(JSON.parse(manualSave));
-      } else {
-        setManualSaveData(null);
+      // Migrate old manual save to slot 1 if exists
+      const oldManualSave = localStorage.getItem("trpg_manual_save");
+      if (oldManualSave && !localStorage.getItem("trpg_manual_save_1")) {
+        localStorage.setItem("trpg_manual_save_1", oldManualSave);
+        localStorage.removeItem("trpg_manual_save");
       }
+
+      const newManualSaves = [];
+      for (let i = 1; i <= 9; i++) {
+        const slotData = localStorage.getItem(`trpg_manual_save_${i}`);
+        newManualSaves.push(slotData ? JSON.parse(slotData) : null);
+      }
+      setManualSaves(newManualSaves);
     } catch (e) {
       console.error("Error loading saves", e);
     }
@@ -205,24 +214,25 @@ export default function App() {
   };
 
   // Launch from manual slot
-  const handleLoadManualSave = () => {
-    if (!manualSaveData) return;
+  const handleLoadManualSave = (index: number) => {
+    const saveData = manualSaves[index];
+    if (!saveData) return;
     try {
-      setActiveGenre(manualSaveData.genre);
-      setActiveCharacter(manualSaveData.character);
-      setActivePersonality(manualSaveData.gmPersonality || "Dramatic");
-      setActiveHistory(manualSaveData.history || []);
-      setActiveLongTermHistory(manualSaveData.longTermHistory || []);
-      setActiveTurnCount(manualSaveData.turnCount || 1);
-      setActiveLastActionText(manualSaveData.lastActionText || "");
-      setActiveLastDiceRoll(manualSaveData.lastDiceRoll || null);
+      setActiveGenre(saveData.genre);
+      setActiveCharacter(saveData.character);
+      setActivePersonality(saveData.gmPersonality || "Dramatic");
+      setActiveHistory(saveData.history || []);
+      setActiveLongTermHistory(saveData.longTermHistory || []);
+      setActiveTurnCount(saveData.turnCount || 1);
+      setActiveLastActionText(saveData.lastActionText || "");
+      setActiveLastDiceRoll(saveData.lastDiceRoll || null);
 
       setActiveInitialEvent({
-        storyText: manualSaveData.currentEventText,
-        gmCommentary: manualSaveData.currentGmCommentary,
-        recommendedChoices: manualSaveData.currentChoices,
-        isGameOver: manualSaveData.isGameOver,
-        gameEndingType: manualSaveData.gameEndingType,
+        storyText: saveData.currentEventText,
+        gmCommentary: saveData.currentGmCommentary,
+        recommendedChoices: saveData.currentChoices,
+        isGameOver: saveData.isGameOver,
+        gameEndingType: saveData.gameEndingType,
       });
 
       setCurrentScreen("game");
@@ -266,9 +276,11 @@ export default function App() {
       onConfirm: () => {
         setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         localStorage.removeItem("trpg_autosave");
-        localStorage.removeItem("trpg_manual_save");
+        for (let i = 1; i <= 9; i++) {
+          localStorage.removeItem(`trpg_manual_save_${i}`);
+        }
         setHasAutosave(false);
-        setManualSaveData(null);
+        setManualSaves(new Array(9).fill(null));
         checkSaves();
       },
     });
@@ -278,17 +290,21 @@ export default function App() {
   const handleExportSaves = () => {
     try {
       const autosave = localStorage.getItem("trpg_autosave");
-      const manualSave = localStorage.getItem("trpg_manual_save");
       const apiConfig = localStorage.getItem("trpg_api_config");
+      
+      const manualSavesExport: Record<string, string | null> = {};
+      for (let i = 1; i <= 9; i++) {
+        manualSavesExport[`trpg_manual_save_${i}`] = localStorage.getItem(`trpg_manual_save_${i}`);
+      }
 
       const backupData = {
         type: "ai_trpg_backup",
-        version: "1.0",
+        version: "1.1",
         exportedAt: new Date().toISOString(),
         saves: {
           trpg_autosave: autosave,
-          trpg_manual_save: manualSave,
           trpg_api_config: apiConfig,
+          ...manualSavesExport
         },
       };
 
@@ -331,9 +347,19 @@ export default function App() {
           localStorage.setItem("trpg_autosave", saves.trpg_autosave);
           importedCount++;
         }
+        
+        // Import old manual save format
         if (saves.trpg_manual_save) {
-          localStorage.setItem("trpg_manual_save", saves.trpg_manual_save);
+          localStorage.setItem("trpg_manual_save_1", saves.trpg_manual_save);
           importedCount++;
+        }
+        
+        // Import new manual save format
+        for (let i = 1; i <= 9; i++) {
+          if (saves[`trpg_manual_save_${i}`]) {
+            localStorage.setItem(`trpg_manual_save_${i}`, saves[`trpg_manual_save_${i}`]);
+            importedCount++;
+          }
         }
         if (saves.trpg_api_config) {
           localStorage.setItem("trpg_api_config", saves.trpg_api_config);
@@ -456,21 +482,24 @@ export default function App() {
                 </button>
               )}
 
-              {manualSaveData && (
-                <button
-                  onClick={handleLoadManualSave}
-                  className="w-full py-4 px-6 bg-zinc-100 dark:bg-zinc-850 hover:bg-amber-50 dark:hover:bg-amber-950/20 text-zinc-800 dark:text-zinc-200 font-extrabold rounded-2xl transition-all border border-zinc-200 dark:border-zinc-800 flex items-center justify-between group text-sm"
-                >
-                  <div className="flex items-center gap-3">
-                    <FileText className="w-5 h-5 text-amber-600" />
-                    <span>
-                      载入手动存档 ({manualSaveData.character?.name} -{" "}
-                      {manualSaveData.genre})
-                    </span>
-                  </div>
-                  <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
-                </button>
-              )}
+              {manualSaves.map((saveData, index) => {
+                if (!saveData) return null;
+                return (
+                  <button
+                    key={index}
+                    onClick={() => handleLoadManualSave(index)}
+                    className="w-full py-4 px-6 bg-zinc-100 dark:bg-zinc-850 hover:bg-amber-50 dark:hover:bg-amber-950/20 text-zinc-800 dark:text-zinc-200 font-extrabold rounded-2xl transition-all border border-zinc-200 dark:border-zinc-800 flex items-center justify-between group text-sm"
+                  >
+                    <div className="flex items-center gap-3">
+                      <FileText className="w-5 h-5 text-amber-600" />
+                      <span>
+                        载入手动存档 {index + 1} ({saveData.character?.name} - {saveData.genre})
+                      </span>
+                    </div>
+                    <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
+                  </button>
+                );
+              })}
 
               {/* SAVE MANAGEMENT COLLAPSIBLE */}
               <div className="pt-2 text-center">
@@ -502,24 +531,17 @@ export default function App() {
                     </div>
                     <div className="flex items-center justify-between border-t border-zinc-100 dark:border-zinc-900 pt-2">
                       <span className="font-bold text-zinc-500">
-                        手动存档主角:
+                        手动存档数量:
                       </span>
                       <span className="font-semibold text-zinc-700 dark:text-zinc-300">
-                        {manualSaveData
-                          ? `${manualSaveData.character?.name} (${manualSaveData.genre})`
-                          : "无存档"}
+                        {manualSaves.filter(s => s !== null).length} / 9
                       </span>
                     </div>
-                    {manualSaveData?.saveDate && (
-                      <div className="text-[10px] text-zinc-400 text-right">
-                        保存时间: {manualSaveData.saveDate}
-                      </div>
-                    )}
 
                     <div className="flex gap-2 pt-2 border-t border-zinc-100 dark:border-zinc-900">
                       <button
                         onClick={handleExportSaves}
-                        disabled={!hasAutosave && !manualSaveData}
+                        disabled={!hasAutosave && manualSaves.every(s => s === null)}
                         className="flex-1 py-2 bg-amber-500/10 hover:bg-amber-500/20 disabled:opacity-40 disabled:hover:bg-amber-500/10 text-amber-700 dark:text-amber-400 rounded-lg font-bold text-center transition-colors flex items-center justify-center gap-1"
                         title="导出所有游玩数据为 JSON 备份文件"
                       >
@@ -538,7 +560,7 @@ export default function App() {
                       </label>
                     </div>
 
-                    {(hasAutosave || manualSaveData) && (
+                    {(hasAutosave || manualSaves.some(s => s !== null)) && (
                       <button
                         onClick={handleDeleteAllSaves}
                         className="w-full mt-2 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-600 dark:text-red-400 rounded-lg font-bold text-center transition-colors block"

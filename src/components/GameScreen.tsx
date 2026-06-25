@@ -117,6 +117,19 @@ export default function GameScreen({
 
   // Save / Load status notifications
   const [saveStatus, setSaveStatus] = useState("");
+  const [showSaveModal, setShowSaveModal] = useState(false);
+  const [saveSlots, setSaveSlots] = useState<(any | null)[]>(new Array(9).fill(null));
+
+  useEffect(() => {
+    if (showSaveModal) {
+      const slots = [];
+      for (let i = 1; i <= 9; i++) {
+        const slotData = localStorage.getItem(`trpg_manual_save_${i}`);
+        slots.push(slotData ? JSON.parse(slotData) : null);
+      }
+      setSaveSlots(slots);
+    }
+  }, [showSaveModal]);
 
   // Dice rolling state machine
   const [diceRollStage, setDiceRollStage] = useState<
@@ -196,7 +209,7 @@ export default function GameScreen({
   };
 
   // Save game slot manually
-  const handleSaveGame = () => {
+  const handleSaveGame = (slotIndex: number) => {
     try {
       const saveState = {
         genre,
@@ -214,11 +227,19 @@ export default function GameScreen({
         lastDiceRoll,
         saveDate: new Date().toLocaleString(),
       };
-      localStorage.setItem("trpg_manual_save", JSON.stringify(saveState));
-      setSaveStatus("游戏已手动保存到浏览器中！");
+      localStorage.setItem(`trpg_manual_save_${slotIndex + 1}`, JSON.stringify(saveState));
+      
+      const newSaveSlots = [...saveSlots];
+      newSaveSlots[slotIndex] = saveState;
+      setSaveSlots(newSaveSlots);
+
+      setSaveStatus(`游戏已保存至插槽 ${slotIndex + 1}！`);
       setTimeout(() => setSaveStatus(""), 3000);
+      setShowSaveModal(false);
     } catch (e) {
       setSaveStatus("保存失败，浏览器缓存空间不足。");
+      setTimeout(() => setSaveStatus(""), 3000);
+      setShowSaveModal(false);
     }
   };
 
@@ -587,7 +608,7 @@ export default function GameScreen({
             </span>
           )}
           <button
-            onClick={handleSaveGame}
+            onClick={() => setShowSaveModal(true)}
             className="p-2 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg hover:bg-amber-500 hover:text-zinc-900 transition-all flex items-center gap-1.5 font-semibold"
           >
             <Save className="w-4 h-4" />
@@ -1473,6 +1494,60 @@ export default function GameScreen({
           </div>
         </div>
       )}
+      {showSaveModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl max-w-sm w-full p-6 shadow-2xl border border-zinc-200 dark:border-zinc-800 animate-fadeIn">
+            <h3 className="font-serif font-bold text-xl text-zinc-900 dark:text-zinc-100 mb-2 flex items-center gap-2">
+              <Save className="w-5 h-5 text-amber-500" />
+              选择手动存档槽位
+            </h3>
+            <p className="text-xs text-zinc-500 mb-6">
+              请选择一个插槽来保存当前的游戏进度。
+            </p>
+
+            <div className="space-y-2 mb-6 max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+              {Array.from({ length: 9 }).map((_, index) => {
+                const slotData = saveSlots[index];
+                return (
+                  <button
+                    key={index}
+                    onClick={() => handleSaveGame(index)}
+                    className="w-full p-4 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 hover:bg-amber-50 dark:bg-zinc-950 dark:hover:bg-amber-950/20 text-left transition-colors group flex flex-col gap-1"
+                  >
+                    <div className="flex items-center justify-between w-full">
+                      <span className="font-bold text-sm text-zinc-700 dark:text-zinc-300 group-hover:text-amber-600 dark:group-hover:text-amber-500">
+                        插槽 {index + 1}
+                      </span>
+                      {slotData ? (
+                        <span className="text-[10px] text-zinc-400">
+                          {slotData.saveDate || "已知存档"}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] text-zinc-500 font-medium">空位</span>
+                      )}
+                    </div>
+                    {slotData && (
+                      <div className="text-xs text-zinc-500">
+                        角色: {slotData.character?.name} | {slotData.genre} (回合: {slotData.turnCount})
+                      </div>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end">
+              <button
+                onClick={() => setShowSaveModal(false)}
+                className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-semibold transition-colors"
+              >
+                取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
     </div>
   );
 }

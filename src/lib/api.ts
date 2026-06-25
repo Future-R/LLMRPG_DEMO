@@ -14,6 +14,12 @@ async function generateContentWithDeepSeek(config: {
   const endpoint = `${cleanUrl}/chat/completions`;
   const systemPrompt = `${config.systemInstruction}\n\n您【必须】返回一个符合以下 JSON 架构的 JSON 对象。不要输出任何解释或 Markdown 格式包裹（如 \\\`\\\`\\\`json）：\n${JSON.stringify(config.responseSchema)}`;
 
+  let finalContents = config.contents;
+  if (config.model.toLowerCase().includes("deepseek")) {
+    const NO_INNER_OS_MARKER = `\n\n【思维模式要求】在你的思考过程（<think>标签内）中，请遵守以下规则：\n1. 禁止使用圆括号包裹内心独白，例如"（心想：……）"或"(内心OS：……)"，所有分析内容直接陈述即可\n2. 禁止以角色第一人称描写内心活动，例如"我心想""我觉得""我暗自"等，请用分析性语言替代\n3. 思考内容应聚焦于剧情走向分析和回复内容规划，不要在思考中进行角色扮演式的内心戏表演`;
+    finalContents += NO_INNER_OS_MARKER;
+  }
+
   console.log(
     `[DeepSeek AI] Routing request to: ${endpoint} | Model: ${config.model}`,
   );
@@ -28,7 +34,7 @@ async function generateContentWithDeepSeek(config: {
       model: config.model,
       messages: [
         { role: "system", content: systemPrompt },
-        { role: "user", content: config.contents },
+        { role: "user", content: finalContents },
       ],
       response_format: { type: "json_object" },
       temperature: 0.7,
@@ -46,6 +52,10 @@ async function generateContentWithDeepSeek(config: {
   const content = result?.choices?.[0]?.message?.content || "";
 
   let cleaned = content.trim();
+
+  // Strip <think>...</think> block if present
+  cleaned = cleaned.replace(/<think>[\s\S]*?<\/think>/g, "").trim();
+
   if (cleaned.startsWith("```json")) {
     cleaned = cleaned.slice(7);
   } else if (cleaned.startsWith("```")) {
