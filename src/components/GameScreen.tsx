@@ -1,7 +1,22 @@
 import React, { useState, useRef, useEffect } from "react";
 import { Character, HistoryTurn, RecommendedChoice } from "../types";
 import { generateEventAPI, compressHistoryAPI } from "../lib/api";
-import { Dice5, User, Briefcase, ChevronRight, HelpCircle, AlertCircle, Save, ArrowLeft, RefreshCw, Sparkles, Scroll, Heart, Edit3, RotateCcw } from "lucide-react";
+import {
+  Dice5,
+  User,
+  Briefcase,
+  ChevronRight,
+  HelpCircle,
+  AlertCircle,
+  Save,
+  ArrowLeft,
+  RefreshCw,
+  Sparkles,
+  Scroll,
+  Heart,
+  Edit3,
+  RotateCcw,
+} from "lucide-react";
 import Markdown from "react-markdown";
 
 interface GameScreenProps {
@@ -30,26 +45,46 @@ export default function GameScreen({
   onExit,
 }: GameScreenProps) {
   // Game states
-  const [character, setCharacter] = useState<Character>({ ...initialCharacter });
+  const [character, setCharacter] = useState<Character>({
+    ...initialCharacter,
+  });
   const [history, setHistory] = useState<HistoryTurn[]>(initialHistory);
-  const [longTermHistory, setLongTermHistory] = useState<string[]>(initialLongTermHistory);
-  const [currentEventText, setCurrentEventText] = useState<string>(initialEvent.storyText);
-  const [currentGmCommentary, setCurrentGmCommentary] = useState<string>(initialEvent.gmCommentary);
-  const [currentChoices, setCurrentChoices] = useState<RecommendedChoice[]>(initialEvent.recommendedChoices);
-  const [isGameOver, setIsGameOver] = useState<boolean>(initialEvent.isGameOver);
-  const [gameEndingType, setGameEndingType] = useState<string>(initialEvent.gameEndingType);
+  const [longTermHistory, setLongTermHistory] = useState<string[]>(
+    initialLongTermHistory,
+  );
+  const [currentEventText, setCurrentEventText] = useState<string>(
+    initialEvent.storyText,
+  );
+  const [currentGmCommentary, setCurrentGmCommentary] = useState<string>(
+    initialEvent.gmCommentary,
+  );
+  const [currentChoices, setCurrentChoices] = useState<RecommendedChoice[]>(
+    initialEvent.recommendedChoices,
+  );
+  const [isGameOver, setIsGameOver] = useState<boolean>(
+    initialEvent.isGameOver,
+  );
+  const [gameEndingType, setGameEndingType] = useState<string>(
+    initialEvent.gameEndingType,
+  );
   const [turnCount, setTurnCount] = useState<number>(initialTurnCount);
 
   // States to facilitate paragraph regeneration
-  const [lastActionText, setLastActionText] = useState<string>(initialLastActionText);
+  const [lastActionText, setLastActionText] = useState<string>(
+    initialLastActionText,
+  );
   const [lastDiceRoll, setLastDiceRoll] = useState<any>(initialLastDiceRoll);
 
   // Edit mode states
   const [isEditingCurrentText, setIsEditingCurrentText] = useState(false);
   const [editedCurrentText, setEditedCurrentText] = useState("");
-  const [editingHistoryIndex, setEditingHistoryIndex] = useState<number | null>(null);
+  const [editingHistoryIndex, setEditingHistoryIndex] = useState<number | null>(
+    null,
+  );
   const [editingHistoryText, setEditingHistoryText] = useState("");
-  const [expandedHistory, setExpandedHistory] = useState<Record<number, boolean>>({});
+  const [expandedHistory, setExpandedHistory] = useState<
+    Record<number, boolean>
+  >({});
 
   // Custom confirmation dialog state
   const [confirmDialog, setConfirmDialog] = useState<{
@@ -84,15 +119,20 @@ export default function GameScreen({
   const [saveStatus, setSaveStatus] = useState("");
 
   // Dice rolling state machine
-  const [diceRollStage, setDiceRollStage] = useState<"idle" | "preparing" | "rolling" | "rolled">("idle");
-  const [activeChoiceForRoll, setActiveChoiceForRoll] = useState<RecommendedChoice | null>(null);
+  const [diceRollStage, setDiceRollStage] = useState<
+    "idle" | "preparing" | "rolling" | "rolled"
+  >("idle");
+  const [activeChoiceForRoll, setActiveChoiceForRoll] =
+    useState<RecommendedChoice | null>(null);
   const [diceValue, setDiceValue] = useState(20);
   const [totalRollResult, setTotalRollResult] = useState(20);
   const [rollSuccess, setRollSuccess] = useState<boolean | null>(null);
   const [isCustomActionRoll, setIsCustomActionRoll] = useState(false);
 
   // Active view tabs on sidebar/mobile (e.g., "story", "history", "character")
-  const [activeTab, setActiveTab] = useState<"story" | "history" | "character">("story");
+  const [activeTab, setActiveTab] = useState<"story" | "history" | "character">(
+    "story",
+  );
 
   // Screen orientation detection for adaptive layout
   const [isPortrait, setIsPortrait] = useState(false);
@@ -126,7 +166,19 @@ export default function GameScreen({
       lastDiceRoll,
     };
     localStorage.setItem("trpg_autosave", JSON.stringify(saveState));
-  }, [character, history, longTermHistory, currentEventText, currentGmCommentary, currentChoices, isGameOver, gameEndingType, turnCount, lastActionText, lastDiceRoll]);
+  }, [
+    character,
+    history,
+    longTermHistory,
+    currentEventText,
+    currentGmCommentary,
+    currentChoices,
+    isGameOver,
+    gameEndingType,
+    turnCount,
+    lastActionText,
+    lastDiceRoll,
+  ]);
 
   // Calculate standard DND modifier based on attribute score
   const getModifier = (score: number) => {
@@ -178,16 +230,24 @@ export default function GameScreen({
     overrideTurnCount?: number,
     overrideCurrentEventText?: string,
     overrideGmCommentary?: string,
-    guidancePrompt?: string
+    guidancePrompt?: string,
   ) => {
     setIsLoading(true);
     setErrorMsg("");
     setDiceRollStage("idle");
 
-    const activeHistory = overrideHistory !== undefined ? overrideHistory : history;
-    const activeTurnCount = overrideTurnCount !== undefined ? overrideTurnCount : turnCount;
-    const activeCurrentEventText = overrideCurrentEventText !== undefined ? overrideCurrentEventText : currentEventText;
-    const activeGmCommentary = overrideGmCommentary !== undefined ? overrideGmCommentary : currentGmCommentary;
+    const activeHistory =
+      overrideHistory !== undefined ? overrideHistory : history;
+    const activeTurnCount =
+      overrideTurnCount !== undefined ? overrideTurnCount : turnCount;
+    const activeCurrentEventText =
+      overrideCurrentEventText !== undefined
+        ? overrideCurrentEventText
+        : currentEventText;
+    const activeGmCommentary =
+      overrideGmCommentary !== undefined
+        ? overrideGmCommentary
+        : currentGmCommentary;
 
     try {
       const payload = {
@@ -218,12 +278,21 @@ export default function GameScreen({
       // Process inventory items additions / removals
       let updatedInventory = [...character.inventory];
       if (data.inventoryChanges) {
-        if (data.inventoryChanges.added && data.inventoryChanges.added.length > 0) {
-          updatedInventory = [...updatedInventory, ...data.inventoryChanges.added];
+        if (
+          data.inventoryChanges.added &&
+          data.inventoryChanges.added.length > 0
+        ) {
+          updatedInventory = [
+            ...updatedInventory,
+            ...data.inventoryChanges.added,
+          ];
         }
-        if (data.inventoryChanges.removed && data.inventoryChanges.removed.length > 0) {
+        if (
+          data.inventoryChanges.removed &&
+          data.inventoryChanges.removed.length > 0
+        ) {
           updatedInventory = updatedInventory.filter(
-            (item) => !data.inventoryChanges.removed.includes(item)
+            (item) => !data.inventoryChanges.removed.includes(item),
           );
         }
       }
@@ -231,8 +300,20 @@ export default function GameScreen({
       // Update character sheet stats with constraints
       const updatedCharacter: Character = {
         ...character,
-        hp: Math.max(0, Math.min(data.characterStatus?.maxHp || 100, data.characterStatus?.hp ?? character.hp)),
-        sanity: Math.max(0, Math.min(data.characterStatus?.maxSanity || 100, data.characterStatus?.sanity ?? character.sanity)),
+        hp: Math.max(
+          0,
+          Math.min(
+            data.characterStatus?.maxHp || 100,
+            data.characterStatus?.hp ?? character.hp,
+          ),
+        ),
+        sanity: Math.max(
+          0,
+          Math.min(
+            data.characterStatus?.maxSanity || 100,
+            data.characterStatus?.sanity ?? character.sanity,
+          ),
+        ),
         inventory: updatedInventory,
       };
 
@@ -244,7 +325,9 @@ export default function GameScreen({
       setCurrentGmCommentary(data.gmCommentary);
       setCurrentChoices(data.recommendedChoices);
       setIsGameOver(data.isGameOver || updatedCharacter.hp <= 0);
-      setGameEndingType(updatedCharacter.hp <= 0 ? "death" : data.gameEndingType);
+      setGameEndingType(
+        updatedCharacter.hp <= 0 ? "death" : data.gameEndingType,
+      );
       setTurnCount(activeTurnCount + 1);
       setCustomActionText("");
 
@@ -260,14 +343,15 @@ export default function GameScreen({
         setConfirmDialog({
           isOpen: true,
           title: "新剧情已生成",
-          message: "AI主持人已为您构思好了后续剧情！要现在切换回【当前故事】页签，查看最新的遭遇发展吗？",
+          message:
+            "AI主持人已为您构思好了后续剧情！要现在切换回【当前故事】页签，查看最新的遭遇发展吗？",
           confirmText: "立即前往",
           cancelText: "留在原地",
           onConfirm: () => {
-            setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+            setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
             setActiveTab("story");
             window.scrollTo({ top: 0, behavior: "smooth" });
-          }
+          },
         });
       }
 
@@ -292,15 +376,9 @@ export default function GameScreen({
 
       setSaveStatus("正在将前20轮记忆压缩并归档至长期冒险编年史...");
 
-      const payload = {
-        genre,
-        character,
-        turnsToCompress,
-      };
-
-      const data = await compressHistoryAPI(payload);
+      const data = await compressHistoryAPI(genre, character, turnsToCompress);
       if (data.summary) {
-        setLongTermHistory(prev => [...prev, data.summary]);
+        setLongTermHistory((prev) => [...prev, data.summary]);
         setHistory(remainingHistory);
         setSaveStatus("历史记忆压缩归档成功！");
         setTimeout(() => setSaveStatus(""), 3000);
@@ -320,8 +398,8 @@ export default function GameScreen({
   };
 
   const performRegeneration = (guidancePrompt?: string) => {
-    setRegenDialog(prev => ({ ...prev, isOpen: false }));
-    
+    setRegenDialog((prev) => ({ ...prev, isOpen: false }));
+
     if (history.length === 0) {
       // Regenerate Turn 1 (Prologue)
       setCurrentEventText("");
@@ -329,15 +407,7 @@ export default function GameScreen({
       setHistory([]);
       setTurnCount(1);
 
-      executeTurn(
-        "开启我的宿命之旅",
-        null,
-        [],
-        1,
-        "",
-        "",
-        guidancePrompt
-      );
+      executeTurn("开启我的宿命之旅", null, [], 1, "", "", guidancePrompt);
     } else {
       // Regenerate subsequent turns
       const updatedHistory = [...history];
@@ -358,7 +428,7 @@ export default function GameScreen({
         lastTurn.turn,
         lastTurn.narrative,
         lastTurn.gmCommentary,
-        guidancePrompt
+        guidancePrompt,
       );
     }
   };
@@ -421,7 +491,11 @@ export default function GameScreen({
 
     const finalD20 = Math.floor(Math.random() * 20) + 1;
     const attributeKey = activeChoiceForRoll.attribute;
-    const attributeScore = attributeKey !== "none" ? character.attributes[attributeKey as keyof Character["attributes"]] || 10 : 10;
+    const attributeScore =
+      attributeKey !== "none"
+        ? character.attributes[attributeKey as keyof Character["attributes"]] ||
+          10
+        : 10;
     const modifier = getModifier(attributeScore);
     const total = finalD20 + modifier;
     const isSuccess = total >= activeChoiceForRoll.targetDc;
@@ -437,7 +511,11 @@ export default function GameScreen({
     if (!activeChoiceForRoll) return;
 
     const attributeKey = activeChoiceForRoll.attribute;
-    const attributeScore = attributeKey !== "none" ? character.attributes[attributeKey as keyof Character["attributes"]] || 10 : 10;
+    const attributeScore =
+      attributeKey !== "none"
+        ? character.attributes[attributeKey as keyof Character["attributes"]] ||
+          10
+        : 10;
     const modifier = getModifier(attributeScore);
 
     const rollData = {
@@ -467,10 +545,10 @@ export default function GameScreen({
       confirmText: "确定重置",
       cancelText: "取消",
       onConfirm: () => {
-        setConfirmDialog(prev => ({ ...prev, isOpen: false }));
+        setConfirmDialog((prev) => ({ ...prev, isOpen: false }));
         localStorage.removeItem("trpg_autosave");
         onExit();
-      }
+      },
     });
   };
 
@@ -490,7 +568,9 @@ export default function GameScreen({
             <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-400 rounded">
               {genre}
             </span>
-            <span className="text-xs text-zinc-500 ml-2">回合: #{turnCount - 1}</span>
+            <span className="text-xs text-zinc-500 ml-2">
+              回合: #{turnCount - 1}
+            </span>
             {isLoading && (
               <span className="ml-3 inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-md text-[10px] font-bold animate-pulse">
                 <RefreshCw className="w-2.5 h-2.5 animate-spin" />
@@ -524,17 +604,21 @@ export default function GameScreen({
       </div>
 
       {/* Main Grid: Info Sidebar (3 Cols) vs Narrative Area (9 Cols) */}
-      <div className={`grid grid-cols-1 ${isPortrait ? "w-full" : "lg:grid-cols-12"} gap-6`}>
-        
+      <div
+        className={`grid grid-cols-1 ${isPortrait ? "w-full" : "lg:grid-cols-12"} gap-6`}
+      >
         {/* SIDEBAR: Character Sheet (Static on large screens, tabbed on mobile) */}
         <div className={`${isPortrait ? "w-full" : "lg:col-span-4"} space-y-6`}>
-          
           {/* Navigation tabs for mobile screen sizing */}
-          <div className={`flex ${isPortrait ? "flex" : "lg:hidden"} bg-zinc-100 dark:bg-zinc-900 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800`}>
+          <div
+            className={`flex ${isPortrait ? "flex" : "lg:hidden"} bg-zinc-100 dark:bg-zinc-900 p-1.5 rounded-xl border border-zinc-200 dark:border-zinc-800`}
+          >
             <button
               onClick={() => setActiveTab("story")}
               className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${
-                activeTab === "story" ? "bg-white dark:bg-zinc-800 text-amber-800 dark:text-amber-400 shadow-sm" : "text-zinc-500"
+                activeTab === "story"
+                  ? "bg-white dark:bg-zinc-800 text-amber-800 dark:text-amber-400 shadow-sm"
+                  : "text-zinc-500"
               }`}
             >
               当前故事
@@ -542,7 +626,9 @@ export default function GameScreen({
             <button
               onClick={() => setActiveTab("character")}
               className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${
-                activeTab === "character" ? "bg-white dark:bg-zinc-800 text-amber-800 dark:text-amber-400 shadow-sm" : "text-zinc-500"
+                activeTab === "character"
+                  ? "bg-white dark:bg-zinc-800 text-amber-800 dark:text-amber-400 shadow-sm"
+                  : "text-zinc-500"
               }`}
             >
               人物属性卡
@@ -550,7 +636,9 @@ export default function GameScreen({
             <button
               onClick={() => setActiveTab("history")}
               className={`flex-1 text-center py-2 text-xs font-bold rounded-lg transition-all ${
-                activeTab === "history" ? "bg-white dark:bg-zinc-800 text-amber-800 dark:text-amber-400 shadow-sm" : "text-zinc-500"
+                activeTab === "history"
+                  ? "bg-white dark:bg-zinc-800 text-amber-800 dark:text-amber-400 shadow-sm"
+                  : "text-zinc-500"
               }`}
             >
               冒险编年史 ({history.length})
@@ -558,15 +646,23 @@ export default function GameScreen({
           </div>
 
           {/* Character attributes and stats panel */}
-          <div className={`bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm p-5 space-y-5 ${
-            activeTab === "character" ? "block" : (isPortrait ? "hidden" : "hidden lg:block")
-          }`}>
+          <div
+            className={`bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm p-5 space-y-5 ${
+              activeTab === "character"
+                ? "block"
+                : isPortrait
+                  ? "hidden"
+                  : "hidden lg:block"
+            }`}
+          >
             <div className="flex items-center gap-3 border-b border-zinc-150 dark:border-zinc-800 pb-3">
               <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950 flex items-center justify-center text-amber-800 dark:text-amber-400">
                 <User className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="font-serif text-lg font-bold text-zinc-900 dark:text-zinc-100">{character.name}</h3>
+                <h3 className="font-serif text-lg font-bold text-zinc-900 dark:text-zinc-100">
+                  {character.name}
+                </h3>
                 <span className="text-xs px-2 py-0.5 bg-zinc-100 dark:bg-zinc-800 text-zinc-600 dark:text-zinc-400 rounded-md font-semibold">
                   {character.class}
                 </span>
@@ -579,12 +675,16 @@ export default function GameScreen({
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   <span>{character.resourceName || "主要资源"}</span>
-                  <span className="text-amber-700 dark:text-amber-500">{character.hp} / {character.maxHp}</span>
+                  <span className="text-amber-700 dark:text-amber-500">
+                    {character.hp} / {character.maxHp}
+                  </span>
                 </div>
                 <div className="w-full bg-zinc-100 dark:bg-zinc-950 h-3 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-900">
                   <div
                     className="bg-red-500 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${(character.hp / character.maxHp) * 100}%` }}
+                    style={{
+                      width: `${(character.hp / character.maxHp) * 100}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -593,12 +693,16 @@ export default function GameScreen({
               <div className="space-y-1">
                 <div className="flex justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300">
                   <span>{character.secondaryResourceName || "次要资源"}</span>
-                  <span className="text-purple-700 dark:text-purple-400">{character.sanity} / {character.maxSanity}</span>
+                  <span className="text-purple-700 dark:text-purple-400">
+                    {character.sanity} / {character.maxSanity}
+                  </span>
                 </div>
                 <div className="w-full bg-zinc-100 dark:bg-zinc-950 h-3 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-900">
                   <div
                     className="bg-purple-500 h-full rounded-full transition-all duration-500"
-                    style={{ width: `${(character.sanity / character.maxSanity) * 100}%` }}
+                    style={{
+                      width: `${(character.sanity / character.maxSanity) * 100}%`,
+                    }}
                   />
                 </div>
               </div>
@@ -606,19 +710,32 @@ export default function GameScreen({
 
             {/* Attributes modifiers list */}
             <div className="space-y-2 pt-2">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">核心技能与属性检定修正</span>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                核心技能与属性检定修正
+              </span>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 {Object.entries(character.attributes).map(([key, val]) => {
                   const mod = getModifier(val);
                   return (
-                    <div key={key} className="p-2 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-150/40 dark:border-zinc-900/60 flex items-center justify-between">
+                    <div
+                      key={key}
+                      className="p-2 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-150/40 dark:border-zinc-900/60 flex items-center justify-between"
+                    >
                       <div>
-                        <div className="text-[10px] text-zinc-400 font-bold">{ATTRIBUTE_LABELS[key] || key}</div>
-                        <div className="text-zinc-800 dark:text-zinc-200 font-extrabold text-sm">{val}</div>
+                        <div className="text-[10px] text-zinc-400 font-bold">
+                          {ATTRIBUTE_LABELS[key] || key}
+                        </div>
+                        <div className="text-zinc-800 dark:text-zinc-200 font-extrabold text-sm">
+                          {val}
+                        </div>
                       </div>
-                      <span className={`px-1.5 py-0.5 rounded font-mono font-bold text-xs ${
-                        mod >= 0 ? "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400" : "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400"
-                      }`}>
+                      <span
+                        className={`px-1.5 py-0.5 rounded font-mono font-bold text-xs ${
+                          mod >= 0
+                            ? "bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-400"
+                            : "bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-400"
+                        }`}
+                      >
                         {mod >= 0 ? `+${mod}` : mod}
                       </span>
                     </div>
@@ -653,7 +770,9 @@ export default function GameScreen({
 
             {/* Character Traits */}
             <div className="space-y-2 pt-2">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">天赋特质</span>
+              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                天赋特质
+              </span>
               <div className="space-y-1.5">
                 {character.traits.map((trait, index) => (
                   <div
@@ -668,22 +787,39 @@ export default function GameScreen({
           </div>
 
           {/* History / Adventure Log */}
-          <div className={`bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm p-5 space-y-4 max-h-[500px] overflow-y-auto ${
-            activeTab === "history" ? "block" : (isPortrait ? "hidden" : "hidden lg:block")
-          }`}>
+          <div
+            className={`bg-white dark:bg-zinc-900 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm p-5 space-y-4 max-h-[500px] overflow-y-auto ${
+              activeTab === "history"
+                ? "block"
+                : isPortrait
+                  ? "hidden"
+                  : "hidden lg:block"
+            }`}
+          >
             <h3 className="font-serif text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2 pb-2 border-b">
               <Scroll className="w-5 h-5 text-amber-600" />
-              冒险编年史 ({history.length + (longTermHistory ? longTermHistory.length * 20 : 0)})
+              冒险编年史 (
+              {history.length +
+                (longTermHistory ? longTermHistory.length * 20 : 0)}
+              )
             </h3>
-            {history.length === 0 && (!longTermHistory || longTermHistory.length === 0) ? (
-              <div className="text-xs text-zinc-400 text-center py-10">故事刚刚开始，还没有留下历史足迹...</div>
+            {history.length === 0 &&
+            (!longTermHistory || longTermHistory.length === 0) ? (
+              <div className="text-xs text-zinc-400 text-center py-10">
+                故事刚刚开始，还没有留下历史足迹...
+              </div>
             ) : (
               <div className="space-y-4">
                 {longTermHistory && longTermHistory.length > 0 && (
                   <div className="space-y-2 border-b pb-3 border-zinc-100 dark:border-zinc-800">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">长期史编年提要</span>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                      长期史编年提要
+                    </span>
                     {longTermHistory.map((summary, idx) => (
-                      <div key={`long-${idx}`} className="p-2.5 bg-amber-50/30 dark:bg-amber-950/10 text-amber-900/90 dark:text-amber-400/90 text-xs rounded-lg border border-amber-200/20 leading-relaxed">
+                      <div
+                        key={`long-${idx}`}
+                        className="p-2.5 bg-amber-50/30 dark:bg-amber-950/10 text-amber-900/90 dark:text-amber-400/90 text-xs rounded-lg border border-amber-200/20 leading-relaxed"
+                      >
                         ✦ 阶段 {idx + 1}: {summary}
                       </div>
                     ))}
@@ -692,9 +828,14 @@ export default function GameScreen({
 
                 {history.length > 0 && (
                   <div className="space-y-4">
-                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">近期详细历史</span>
+                    <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                      近期详细历史
+                    </span>
                     {history.map((turn, index) => (
-                      <div key={index} className="space-y-1.5 border-l-2 border-amber-200 dark:border-amber-950 pl-3 py-1 text-xs relative group">
+                      <div
+                        key={index}
+                        className="space-y-1.5 border-l-2 border-amber-200 dark:border-amber-950 pl-3 py-1 text-xs relative group"
+                      >
                         <div className="flex items-center justify-between font-bold text-zinc-400 text-[10px]">
                           <span>回合 #{turn.turn}</span>
                           <button
@@ -713,7 +854,9 @@ export default function GameScreen({
                           <div className="space-y-2 mt-1 bg-zinc-50 dark:bg-zinc-950 p-2 rounded border border-zinc-200 dark:border-zinc-800">
                             <textarea
                               value={editingHistoryText}
-                              onChange={(e) => setEditingHistoryText(e.target.value)}
+                              onChange={(e) =>
+                                setEditingHistoryText(e.target.value)
+                              }
                               rows={4}
                               className="w-full text-[11px] p-2 rounded border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500 leading-normal"
                             />
@@ -744,9 +887,9 @@ export default function GameScreen({
                           <>
                             <div
                               onClick={() => {
-                                setExpandedHistory(prev => ({
+                                setExpandedHistory((prev) => ({
                                   ...prev,
-                                  [index]: !prev[index]
+                                  [index]: !prev[index],
                                 }));
                               }}
                               className={`text-zinc-800 dark:text-zinc-300 leading-relaxed cursor-pointer hover:text-zinc-900 dark:hover:text-zinc-100 transition-colors ${
@@ -758,9 +901,9 @@ export default function GameScreen({
                             </div>
                             <button
                               onClick={() => {
-                                setExpandedHistory(prev => ({
+                                setExpandedHistory((prev) => ({
                                   ...prev,
-                                  [index]: !prev[index]
+                                  [index]: !prev[index],
                                 }));
                               }}
                               className="text-[10px] text-amber-600 dark:text-amber-500 hover:underline font-semibold mt-0.5 block"
@@ -788,21 +931,23 @@ export default function GameScreen({
         </div>
 
         {/* MAIN GAME PROGRESSION: Narrative Story text and choices */}
-        <div className={`${isPortrait ? "w-full" : "lg:col-span-8"} space-y-6 ${activeTab === "story" ? "block" : (isPortrait ? "hidden" : "hidden lg:block")}`}>
-          
+        <div
+          className={`${isPortrait ? "w-full" : "lg:col-span-8"} space-y-6 ${activeTab === "story" ? "block" : isPortrait ? "hidden" : "hidden lg:block"}`}
+        >
           {/* Main narrative block */}
           <div className="bg-amber-50/20 dark:bg-zinc-900 border border-amber-900/10 dark:border-zinc-800/80 rounded-2xl shadow-sm p-6 space-y-6 min-h-[400px] flex flex-col justify-between">
             <div className="space-y-6">
-              
               {/* Turn title indicator */}
               <div className="flex items-center justify-between pb-3 border-b border-amber-900/5 flex-wrap gap-2">
                 <span className="font-serif text-amber-800 dark:text-amber-500 font-bold tracking-wider text-sm flex items-center gap-1.5">
                   <Sparkles className="w-4 h-4" />
                   AI 跑团主持人叙述
                 </span>
-                
+
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-zinc-400 mr-2">TURN {turnCount - 1}</span>
+                  <span className="font-mono text-xs text-zinc-400 mr-2">
+                    TURN {turnCount - 1}
+                  </span>
                   {!isGameOver && (
                     <div className="flex items-center gap-1">
                       <button
@@ -887,7 +1032,9 @@ export default function GameScreen({
               <div className="flex items-center justify-between border-b border-zinc-800 pb-3">
                 <div className="flex items-center gap-2">
                   <Dice5 className="w-5 h-5 text-amber-400 animate-pulse" />
-                  <h4 className="text-sm font-bold tracking-wide uppercase">TRPG 骰点判定：D20 掷骰挑战</h4>
+                  <h4 className="text-sm font-bold tracking-wide uppercase">
+                    TRPG 骰点判定：D20 掷骰挑战
+                  </h4>
                 </div>
                 <button
                   onClick={() => setDiceRollStage("idle")}
@@ -898,33 +1045,60 @@ export default function GameScreen({
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-center">
-                
                 {/* Roll mechanics details */}
                 <div className="space-y-4">
                   <div>
-                    <span className="text-[10px] text-zinc-400 block font-bold uppercase">你尝试执行的行动</span>
-                    <p className="text-sm font-semibold text-amber-300">“{activeChoiceForRoll.text}”</p>
+                    <span className="text-[10px] text-zinc-400 block font-bold uppercase">
+                      你尝试执行的行动
+                    </span>
+                    <p className="text-sm font-semibold text-amber-300">
+                      “{activeChoiceForRoll.text}”
+                    </p>
                   </div>
 
                   <div className="grid grid-cols-2 gap-3 text-xs">
                     <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
                       <span className="text-zinc-400 block">检定属性</span>
-                      <strong className="text-sm text-zinc-100">{ATTRIBUTE_LABELS[activeChoiceForRoll.attribute] || activeChoiceForRoll.attribute}</strong>
+                      <strong className="text-sm text-zinc-100">
+                        {ATTRIBUTE_LABELS[activeChoiceForRoll.attribute] ||
+                          activeChoiceForRoll.attribute}
+                      </strong>
                     </div>
                     <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
                       <span className="text-zinc-400 block">目标难度 DC</span>
-                      <strong className="text-sm text-amber-400 font-bold">{activeChoiceForRoll.targetDc}</strong>
+                      <strong className="text-sm text-amber-400 font-bold">
+                        {activeChoiceForRoll.targetDc}
+                      </strong>
                     </div>
                     <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
                       <span className="text-zinc-400 block">属性加成修正</span>
                       <strong className="text-sm text-green-400 font-mono font-bold">
-                        +{getModifier(character.attributes[activeChoiceForRoll.attribute as keyof Character["attributes"]] || 10)}
+                        +
+                        {getModifier(
+                          character.attributes[
+                            activeChoiceForRoll.attribute as keyof Character["attributes"]
+                          ] || 10,
+                        )}
                       </strong>
                     </div>
                     <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
                       <span className="text-zinc-400 block">通过概率提示</span>
                       <strong className="text-sm text-zinc-300">
-                        {Math.max(5, Math.min(95, (21 - (activeChoiceForRoll.targetDc - getModifier(character.attributes[activeChoiceForRoll.attribute as keyof Character["attributes"]] || 10))) * 5))}%
+                        {Math.max(
+                          5,
+                          Math.min(
+                            95,
+                            (21 -
+                              (activeChoiceForRoll.targetDc -
+                                getModifier(
+                                  character.attributes[
+                                    activeChoiceForRoll.attribute as keyof Character["attributes"]
+                                  ] || 10,
+                                ))) *
+                              5,
+                          ),
+                        )}
+                        %
                       </strong>
                     </div>
                   </div>
@@ -933,32 +1107,77 @@ export default function GameScreen({
                 {/* Animated D20 dice model */}
                 <div className="flex flex-col items-center justify-center py-4">
                   <div className="relative w-36 h-36 flex items-center justify-center">
-                    
                     {/* SVG D20 Dice Outline with rotation animation */}
                     <svg
                       className={`absolute inset-0 w-full h-full text-zinc-800 ${
-                        diceRollStage === "rolling" ? "animate-spin text-amber-600" : "text-zinc-700"
+                        diceRollStage === "rolling"
+                          ? "animate-spin text-amber-600"
+                          : "text-zinc-700"
                       }`}
                       viewBox="0 0 100 100"
                       fill="currentColor"
                     >
-                      <polygon points="50,5 95,25 95,75 50,95 5,75 5,25" stroke="#F59E0B" strokeWidth="2" strokeLinejoin="round" />
-                      <polygon points="50,5 50,95" stroke="#F59E0B" strokeWidth="1" strokeDasharray="2,2" />
-                      <polygon points="5,25 95,25" stroke="#F59E0B" strokeWidth="1" strokeDasharray="2,2" />
-                      <polygon points="5,75 95,75" stroke="#F59E0B" strokeWidth="1" strokeDasharray="2,2" />
-                      <polygon points="50,30 25,75 75,75" stroke="#F59E0B" strokeWidth="1.5" fill="none" />
-                      <polygon points="50,30 50,5" stroke="#F59E0B" strokeWidth="1.5" fill="none" />
-                      <polygon points="25,25 50,30" stroke="#F59E0B" strokeWidth="1.5" fill="none" />
-                      <polygon points="75,25 50,30" stroke="#F59E0B" strokeWidth="1.5" fill="none" />
+                      <polygon
+                        points="50,5 95,25 95,75 50,95 5,75 5,25"
+                        stroke="#F59E0B"
+                        strokeWidth="2"
+                        strokeLinejoin="round"
+                      />
+                      <polygon
+                        points="50,5 50,95"
+                        stroke="#F59E0B"
+                        strokeWidth="1"
+                        strokeDasharray="2,2"
+                      />
+                      <polygon
+                        points="5,25 95,25"
+                        stroke="#F59E0B"
+                        strokeWidth="1"
+                        strokeDasharray="2,2"
+                      />
+                      <polygon
+                        points="5,75 95,75"
+                        stroke="#F59E0B"
+                        strokeWidth="1"
+                        strokeDasharray="2,2"
+                      />
+                      <polygon
+                        points="50,30 25,75 75,75"
+                        stroke="#F59E0B"
+                        strokeWidth="1.5"
+                        fill="none"
+                      />
+                      <polygon
+                        points="50,30 50,5"
+                        stroke="#F59E0B"
+                        strokeWidth="1.5"
+                        fill="none"
+                      />
+                      <polygon
+                        points="25,25 50,30"
+                        stroke="#F59E0B"
+                        strokeWidth="1.5"
+                        fill="none"
+                      />
+                      <polygon
+                        points="75,25 50,30"
+                        stroke="#F59E0B"
+                        strokeWidth="1.5"
+                        fill="none"
+                      />
                     </svg>
 
                     {/* Numeric display overlay */}
                     <div className="z-10 text-center space-y-1">
-                      <span className={`text-4xl font-extrabold tracking-tight block ${
-                        diceRollStage === "rolled"
-                          ? rollSuccess ? "text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.4)]" : "text-red-400"
-                          : "text-amber-400"
-                      }`}>
+                      <span
+                        className={`text-4xl font-extrabold tracking-tight block ${
+                          diceRollStage === "rolled"
+                            ? rollSuccess
+                              ? "text-green-400 drop-shadow-[0_0_8px_rgba(74,222,128,0.4)]"
+                              : "text-red-400"
+                            : "text-amber-400"
+                        }`}
+                      >
                         {diceValue}
                       </span>
                       {diceRollStage === "rolled" && (
@@ -987,11 +1206,22 @@ export default function GameScreen({
 
                     {diceRollStage === "rolled" && (
                       <div className="space-y-3">
-                        <div className={`text-sm font-bold ${rollSuccess ? "text-green-400" : "text-red-400"}`}>
-                          {rollSuccess ? "【 检定成功！ 】" : "【 检定失败！ 】"}
+                        <div
+                          className={`text-sm font-bold ${rollSuccess ? "text-green-400" : "text-red-400"}`}
+                        >
+                          {rollSuccess
+                            ? "【 检定成功！ 】"
+                            : "【 检定失败！ 】"}
                         </div>
                         <p className="text-xs text-zinc-400 max-w-xs mx-auto">
-                          你掷出了 {diceValue} 点，加上属性修正值 {getModifier(character.attributes[activeChoiceForRoll.attribute as keyof Character["attributes"]] || 10)}，最终成绩为 {totalRollResult} （难度 DC {activeChoiceForRoll.targetDc}）。
+                          你掷出了 {diceValue} 点，加上属性修正值{" "}
+                          {getModifier(
+                            character.attributes[
+                              activeChoiceForRoll.attribute as keyof Character["attributes"]
+                            ] || 10,
+                          )}
+                          ，最终成绩为 {totalRollResult} （难度 DC{" "}
+                          {activeChoiceForRoll.targetDc}）。
                         </p>
                         <button
                           onClick={handleContinueAfterRoll}
@@ -1003,7 +1233,6 @@ export default function GameScreen({
                     )}
                   </div>
                 </div>
-
               </div>
             </div>
           )}
@@ -1011,19 +1240,20 @@ export default function GameScreen({
           {/* CH OICES AND INTERACTION TERMINAL if not rolling */}
           {diceRollStage === "idle" && (
             <div className="space-y-4 relative">
-              
               {/* Game Over / Ending screen block */}
               {isGameOver ? (
                 <div className="bg-zinc-900 text-zinc-100 p-8 rounded-2xl border-2 border-amber-600 text-center space-y-6">
                   <h3 className="font-serif text-3xl font-extrabold text-amber-500">
-                    {gameEndingType === "victory" ? "🎉 达成辉煌结局" : "💀 冒险在此终结"}
+                    {gameEndingType === "victory"
+                      ? "🎉 达成辉煌结局"
+                      : "💀 冒险在此终结"}
                   </h3>
                   <p className="text-sm max-w-xl mx-auto leading-relaxed text-zinc-300">
                     {gameEndingType === "victory"
                       ? "你跨越了重重险阻，战胜了不可名状的危机，最终在这个世界的史册中镌刻下了属于你的名字。你的英名流传千古！"
                       : "你的生命值已耗尽或心智已完全崩溃。在残酷无情的法则面前，你无力再抵挡暗影的侵蚀。你的躯壳或灵魂永远地遗失在了这片异乡沙土..."}
                   </p>
-                  
+
                   <div className="flex justify-center gap-4 pt-2">
                     <button
                       onClick={handleRestart}
@@ -1058,11 +1288,13 @@ export default function GameScreen({
                             {choice.text}
                           </div>
                           <div className="mt-2 flex items-center justify-between">
-                            <span className={`text-[10px] px-2 py-0.5 rounded font-bold ${
-                              choice.actionType === "check"
-                                ? "bg-purple-100 dark:bg-purple-950/30 text-purple-800 dark:text-purple-400"
-                                : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
-                            }`}>
+                            <span
+                              className={`text-[10px] px-2 py-0.5 rounded font-bold ${
+                                choice.actionType === "check"
+                                  ? "bg-purple-100 dark:bg-purple-950/30 text-purple-800 dark:text-purple-400"
+                                  : "bg-zinc-100 dark:bg-zinc-800 text-zinc-500"
+                              }`}
+                            >
                               {choice.difficulty}
                             </span>
                             {choice.actionType === "check" && (
@@ -1086,10 +1318,15 @@ export default function GameScreen({
                         <div className="text-xs font-bold text-amber-900 dark:text-amber-500 animate-pulse">
                           AI 主持人正在构思剧情，描摹命运的下一笔...
                         </div>
-                        <p className="text-[10px] text-zinc-400">“骰子在毛毡上翻滚，齿轮在阴影中轰鸣。”</p>
+                        <p className="text-[10px] text-zinc-400">
+                          “骰子在毛毡上翻滚，齿轮在阴影中轰鸣。”
+                        </p>
                       </div>
                     ) : (
-                      <form onSubmit={handleCustomActionSubmit} className="flex flex-col sm:flex-row gap-2">
+                      <form
+                        onSubmit={handleCustomActionSubmit}
+                        className="flex flex-col sm:flex-row gap-2"
+                      >
                         <input
                           type="text"
                           value={customActionText}
@@ -1121,7 +1358,10 @@ export default function GameScreen({
                       </form>
                     )}
                     <p className="text-[10px] text-zinc-400 leading-normal">
-                      提示：“运气掷骰执行”会预先掷 D20 并附加运气修正，判定是否能顺利完成该意图；“直接执行”会把行动文字直接交给 AI 主持人，由其根据角色的智力/敏捷等属性及逻辑进行剧情后果叙述。
+                      提示：“运气掷骰执行”会预先掷 D20
+                      并附加运气修正，判定是否能顺利完成该意图；“直接执行”会把行动文字直接交给
+                      AI
+                      主持人，由其根据角色的智力/敏捷等属性及逻辑进行剧情后果叙述。
                     </p>
                   </div>
                 </>
@@ -1134,17 +1374,19 @@ export default function GameScreen({
                   {errorMsg}
                 </div>
               )}
-
             </div>
           )}
-
         </div>
-
       </div>
 
       {confirmDialog.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn" onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))} />
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn"
+            onClick={() =>
+              setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
+            }
+          />
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-md w-full p-6 shadow-xl relative z-10 animate-scaleUp space-y-4">
             <h3 className="font-serif text-lg font-bold text-zinc-900 dark:text-zinc-100 border-b pb-2">
               {confirmDialog.title}
@@ -1154,7 +1396,9 @@ export default function GameScreen({
             </p>
             <div className="flex gap-2 justify-end pt-2">
               <button
-                onClick={() => setConfirmDialog(prev => ({ ...prev, isOpen: false }))}
+                onClick={() =>
+                  setConfirmDialog((prev) => ({ ...prev, isOpen: false }))
+                }
                 className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-semibold transition-colors"
               >
                 {confirmDialog.cancelText || "取消"}
@@ -1172,7 +1416,12 @@ export default function GameScreen({
 
       {regenDialog.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn" onClick={() => setRegenDialog(prev => ({ ...prev, isOpen: false }))} />
+          <div
+            className="fixed inset-0 bg-black/50 backdrop-blur-sm animate-fadeIn"
+            onClick={() =>
+              setRegenDialog((prev) => ({ ...prev, isOpen: false }))
+            }
+          />
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-2xl max-w-lg w-full p-6 shadow-xl relative z-10 animate-scaleUp space-y-4">
             <div className="flex items-center gap-2 border-b pb-2">
               <RotateCcw className="w-5 h-5 text-purple-500" />
@@ -1180,9 +1429,10 @@ export default function GameScreen({
                 重新生成当前剧情
               </h3>
             </div>
-            
+
             <p className="text-xs text-zinc-500 dark:text-zinc-400 leading-relaxed">
-              确定要抹除当前展现的剧情，并让 AI 主持人重新为您构思、撰写这一轮的遭遇吗？
+              确定要抹除当前展现的剧情，并让 AI
+              主持人重新为您构思、撰写这一轮的遭遇吗？
             </p>
 
             <div className="space-y-1.5">
@@ -1191,7 +1441,12 @@ export default function GameScreen({
               </label>
               <textarea
                 value={regenDialog.promptText}
-                onChange={(e) => setRegenDialog(prev => ({ ...prev, promptText: e.target.value }))}
+                onChange={(e) =>
+                  setRegenDialog((prev) => ({
+                    ...prev,
+                    promptText: e.target.value,
+                  }))
+                }
                 placeholder="例如：'让环境气氛更惊悚'、'不遇到怪物而是发现神秘解密机关'、'加大动作感官的细致刻画'、'多一些Galgame心跳红晕暗示' 等..."
                 rows={4}
                 className="w-full text-xs p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500 leading-normal resize-none"
@@ -1200,7 +1455,9 @@ export default function GameScreen({
 
             <div className="flex gap-2 justify-end pt-2">
               <button
-                onClick={() => setRegenDialog(prev => ({ ...prev, isOpen: false }))}
+                onClick={() =>
+                  setRegenDialog((prev) => ({ ...prev, isOpen: false }))
+                }
                 className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-semibold transition-colors"
               >
                 取消
