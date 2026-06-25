@@ -127,6 +127,16 @@ export async function checkConnectivity(apiConfig?: any): Promise<boolean> {
       });
       if (!res.ok) throw new Error(`Status ${res.status}`);
       return true;
+    } else if (config.modelEngine === "openai") {
+      if (!config.openaiApiKey) throw new Error("缺少 OpenAI API Key");
+      const cleanUrl = config.openaiApiUrl.trim().replace(/\/$/, "");
+      const endpoint = `${cleanUrl}/models`;
+      const res = await fetch(endpoint, {
+        method: "GET",
+        headers: { Authorization: `Bearer ${config.openaiApiKey.trim()}` },
+      });
+      if (!res.ok) throw new Error(`Status ${res.status}`);
+      return true;
     } else {
       if (!config.geminiApiKey) throw new Error("缺少 Gemini API Key");
       const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
@@ -156,6 +166,9 @@ export async function negotiateCharacterAPI(
   if (config.modelEngine === "deepseek" && !config.deepseekApiKey) {
     throw new Error("请先在主页设置中填写并配置您的 DeepSeek API Key。");
   }
+  if (config.modelEngine === "openai" && !config.openaiApiKey) {
+    throw new Error("请先在主页设置中填写并配置您的 OpenAI API Key。");
+  }
 
   const systemInstruction = `你是一位专业、风趣且富有创意的跑团游戏主持人（Game Master，简称GM）。
 当前游戏背景题材是：【${genre}】。
@@ -172,6 +185,7 @@ export async function negotiateCharacterAPI(
 - 运气(LCK): ${character.attributes.luck}
 
 角色名字: ${character.name || "未命名"}
+角色性别: ${character.gender || "未设定"}
 角色职业/身份: ${character.class || "未设定"}
 初始天赋/特质: ${JSON.stringify(character.traits || [])}
 初始携带物品: ${JSON.stringify(character.inventory || [])}
@@ -229,6 +243,16 @@ export async function negotiateCharacterAPI(
       apiKey: config.deepseekApiKey,
       apiUrl: config.deepseekApiUrl,
       model: config.deepseekModel,
+    });
+  } else if (config.modelEngine === "openai") {
+    // We can reuse the DeepSeek client logic since OpenAI's API is identical
+    return generateContentWithDeepSeek({
+      contents: prompt,
+      systemInstruction,
+      responseSchema,
+      apiKey: config.openaiApiKey,
+      apiUrl: config.openaiApiUrl,
+      model: config.openaiModel,
     });
   } else {
     const response = await generateContentWithFallback({
@@ -292,6 +316,9 @@ export async function compressHistoryAPI(
   if (config.modelEngine === "deepseek" && !config.deepseekApiKey) {
     throw new Error("请先在主页设置中填写并配置您的 DeepSeek API Key。");
   }
+  if (config.modelEngine === "openai" && !config.openaiApiKey) {
+    throw new Error("请先在主页设置中填写并配置您的 OpenAI API Key。");
+  }
 
   const systemInstruction = `你是一位高水平的跑团故事编辑与历史记录官。你的任务是将玩家过去经历的 20 个跑团回合合并，提炼并总结成一段 150-300 字左右、流畅连贯、文笔极佳且契合题材（${genre}）的【编年史摘要（前情提要）】。
 核心要求：
@@ -342,6 +369,35 @@ ${turnsText}
     const result: any = await response.json();
     const content = result?.choices?.[0]?.message?.content || "";
     return { summary: content.trim() };
+  } else if (config.modelEngine === "openai") {
+    const response = await fetch(
+      `${config.openaiApiUrl.trim().replace(/\/$/, "")}/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${config.openaiApiKey}`,
+        },
+        body: JSON.stringify({
+          model: config.openaiModel,
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: prompt },
+          ],
+          temperature: 0.6,
+        }),
+      },
+    );
+
+    if (!response.ok) {
+      const errBody = await response.text();
+      throw new Error(
+        `OpenAI API 请求失败 (HTTP ${response.status}): ${errBody}`,
+      );
+    }
+    const result: any = await response.json();
+    const content = result?.choices?.[0]?.message?.content || "";
+    return { summary: content.trim() };
   } else {
     const ai = new GoogleGenAI({ apiKey: config.geminiApiKey });
     const response = await ai.models.generateContent({
@@ -376,6 +432,9 @@ export async function generateEventAPI(payload: any) {
   if (config.modelEngine === "deepseek" && !config.deepseekApiKey) {
     throw new Error("请先在主页设置中填写并配置您的 DeepSeek API Key。");
   }
+  if (config.modelEngine === "openai" && !config.openaiApiKey) {
+    throw new Error("请先在主页设置中填写并配置您的 OpenAI API Key。");
+  }
 
   // Map personality to narrative guidance
   let personalityGuide = "";
@@ -404,7 +463,7 @@ export async function generateEventAPI(payload: any) {
 3. 【推荐选择生成】：你必须生成 3-4 个后续的推荐行动选项：
    - 至少一个常规安全选项（正常观察或对话，不需要检定，或极低难度）。
    - 至少两个需要进行属性检定（Skill Check）的高风险/高回报行动。每个检定选项必须写明检定的属性（力量、敏捷、智力、魅力、意志、运气中的一种）和建议的目标难度DC（8到18之间）。
-4. 【汉化风格】：完全采用简体中文，遣词造句极具跑团代入感，使用Markdown排版（请绝对避免使用斜体格式，如 *文字*，以免影响中文阅读体验）。
+4. 【汉化风格】：完全采用简体中文，遣词造句极具跑团代入感，使用Markdown排版（请绝对避免使用斜体格式，如 \`*文字*\`，以免影响中文阅读体验）。
 
 当前GM人设指南：${personalityGuide}`;
 
@@ -438,6 +497,7 @@ ${h.rollResult ? `判定结果: ${h.rollResult}` : ""}`;
   const currentAttributes = character.attributes;
   const characterContext = `当前角色卡信息：
 - 名字: ${character.name}
+- 性别: ${character.gender || "未设定"}
 - 职业: ${character.class}
 - 状态: ${character.resourceName || "生命值"}: ${character.hp}/${character.maxHp || 100}, ${character.secondaryResourceName || "理智值"}: ${character.sanity}/${character.maxSanity || 100}
 - 携带物品: ${JSON.stringify(character.inventory || [])}
@@ -593,6 +653,15 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
       apiKey: config.deepseekApiKey,
       apiUrl: config.deepseekApiUrl,
       model: config.deepseekModel,
+    });
+  } else if (config.modelEngine === "openai") {
+    return generateContentWithDeepSeek({
+      contents: prompt,
+      systemInstruction,
+      responseSchema,
+      apiKey: config.openaiApiKey,
+      apiUrl: config.openaiApiUrl,
+      model: config.openaiModel,
     });
   } else {
     const response = await generateContentWithFallback({

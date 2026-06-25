@@ -62,19 +62,23 @@ export default function App() {
   });
 
   // API settings states
-  const [modelEngine, setModelEngine] = useState<"gemini" | "deepseek">(
+  const [modelEngine, setModelEngine] = useState<"gemini" | "deepseek" | "openai">(
     "gemini",
   );
   const [geminiApiKey, setGeminiApiKey] = useState("");
   const [deepseekApiKey, setDeepseekApiKey] = useState("");
   const [deepseekApiUrl, setDeepseekApiUrl] = useState(
-    "https://api.deepseek.com/v1",
+    "https://api.deepseek.com",
   );
-  const [deepseekModel, setDeepseekModel] = useState("deepseek-chat");
+  const [deepseekModel, setDeepseekModel] = useState("deepseek-v4-pro");
+  const [openaiApiKey, setOpenaiApiKey] = useState("");
+  const [openaiApiUrl, setOpenaiApiUrl] = useState("https://api.openai.com/v1");
+  const [openaiModel, setOpenaiModel] = useState("gpt-4o");
   const [showApiSettings, setShowApiSettings] = useState(false);
   const [apiSaveSuccess, setApiSaveSuccess] = useState(false);
   const [showGeminiKey, setShowGeminiKey] = useState(false);
   const [showDsKey, setShowDsKey] = useState(false);
+  const [showOpenaiKey, setShowOpenaiKey] = useState(false);
   const [connCheckStatus, setConnCheckStatus] = useState<
     "idle" | "checking" | "success" | "error"
   >("idle");
@@ -91,6 +95,9 @@ export default function App() {
         if (config.deepseekApiKey) setDeepseekApiKey(config.deepseekApiKey);
         if (config.deepseekApiUrl) setDeepseekApiUrl(config.deepseekApiUrl);
         if (config.deepseekModel) setDeepseekModel(config.deepseekModel);
+        if (config.openaiApiKey) setOpenaiApiKey(config.openaiApiKey);
+        if (config.openaiApiUrl) setOpenaiApiUrl(config.openaiApiUrl);
+        if (config.openaiModel) setOpenaiModel(config.openaiModel);
       }
     } catch (e) {
       console.error("Error loading API config", e);
@@ -103,8 +110,11 @@ export default function App() {
         modelEngine,
         geminiApiKey,
         deepseekApiKey,
-        deepseekApiUrl: deepseekApiUrl || "https://api.deepseek.com/v1",
-        deepseekModel: deepseekModel || "deepseek-chat",
+        deepseekApiUrl: deepseekApiUrl || "https://api.deepseek.com",
+        deepseekModel: deepseekModel || "deepseek-v4-pro",
+        openaiApiKey,
+        openaiApiUrl: openaiApiUrl || "https://api.openai.com/v1",
+        openaiModel: openaiModel || "gpt-4o",
       };
       localStorage.setItem("trpg_api_config", JSON.stringify(config));
       setApiSaveSuccess(true);
@@ -125,6 +135,9 @@ export default function App() {
         deepseekApiKey,
         deepseekApiUrl,
         deepseekModel,
+        openaiApiKey,
+        openaiApiUrl,
+        openaiModel,
       });
       if (ok) {
         setConnCheckStatus("success");
@@ -562,7 +575,7 @@ export default function App() {
                       <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
                         选择 AI 引擎
                       </label>
-                      <div className="grid grid-cols-2 gap-2">
+                      <div className="grid grid-cols-3 gap-2">
                         <button
                           type="button"
                           onClick={() => setModelEngine("gemini")}
@@ -583,7 +596,18 @@ export default function App() {
                               : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
                           }`}
                         >
-                          DeepSeek (自定义)
+                          DeepSeek
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setModelEngine("openai")}
+                          className={`py-2 px-3 rounded-lg border font-semibold text-center transition-all ${
+                            modelEngine === "openai"
+                              ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/15 text-amber-800 dark:text-amber-400"
+                              : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                          }`}
+                        >
+                          OpenAI / GPT
                         </button>
                       </div>
                     </div>
@@ -626,7 +650,7 @@ export default function App() {
                             type="text"
                             value={deepseekApiUrl}
                             onChange={(e) => setDeepseekApiUrl(e.target.value)}
-                            placeholder="https://api.deepseek.com/v1"
+                            placeholder="https://api.deepseek.com"
                             className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
                           />
                         </div>
@@ -639,7 +663,63 @@ export default function App() {
                             type="text"
                             value={deepseekModel}
                             onChange={(e) => setDeepseekModel(e.target.value)}
-                            placeholder="deepseek-chat"
+                            placeholder="deepseek-v4-pro"
+                            className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          />
+                        </div>
+                      </div>
+                    ) : modelEngine === "openai" ? (
+                      <div className="space-y-3 pt-1 animate-fadeIn">
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                            OpenAI API 密钥 (Key)
+                          </label>
+                          <div className="relative">
+                            <input
+                              type={showOpenaiKey ? "text" : "password"}
+                              value={openaiApiKey}
+                              onChange={(e) =>
+                                setOpenaiApiKey(e.target.value)
+                              }
+                              placeholder="sk-..."
+                              className="w-full text-xs p-2.5 pr-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                              className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600"
+                            >
+                              {showOpenaiKey ? (
+                                <EyeOff className="w-3.5 h-3.5" />
+                              ) : (
+                                <Eye className="w-3.5 h-3.5" />
+                              )}
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                            API 节点请求地址 (Base URL)
+                          </label>
+                          <input
+                            type="text"
+                            value={openaiApiUrl}
+                            onChange={(e) => setOpenaiApiUrl(e.target.value)}
+                            placeholder="https://api.openai.com/v1"
+                            className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                          />
+                        </div>
+
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                            模型名称 (Model)
+                          </label>
+                          <input
+                            type="text"
+                            value={openaiModel}
+                            onChange={(e) => setOpenaiModel(e.target.value)}
+                            placeholder="gpt-4o"
                             className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
                           />
                         </div>

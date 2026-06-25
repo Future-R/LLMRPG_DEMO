@@ -32,6 +32,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
   // Character Sheet States (initially loaded from preset)
   const currentPreset = PRESET_GENRES.find(g => g.id === selectedGenreId) || PRESET_GENRES[0];
   const [charName, setCharName] = useState("");
+  const [charGender, setCharGender] = useState("");
   const [charClass, setCharClass] = useState(currentPreset.defaultClass);
   const [attributes, setAttributes] = useState<Attributes>({ ...currentPreset.defaultAttributes });
   const [traits, setTraits] = useState<string[]>([...currentPreset.defaultTraits]);
@@ -44,6 +45,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
         selectedGenreId,
         customGenre,
         charName,
+        charGender,
         charClass,
         attributes,
         traits,
@@ -216,6 +218,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
     try {
       const characterPayload = {
         name: charName || "冒险者",
+        gender: charGender,
         class: charClass,
         attributes,
         traits,
@@ -271,6 +274,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
 
     const characterData: Character = {
       name: charName.trim(),
+      gender: charGender,
       class: charClass || "冒险者",
       attributes,
       traits,
@@ -477,8 +481,8 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
               </label>
             </div>
 
-            {/* Input name and class */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Input name, gender and class */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div className="space-y-1.5">
                 <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block">
                   主角名字
@@ -487,7 +491,19 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                   type="text"
                   value={charName}
                   onChange={(e) => setCharName(e.target.value)}
-                  placeholder="输入主角名字，如：林动、杰克..."
+                  placeholder="输入主角名字"
+                  className="w-full text-sm p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                />
+              </div>
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block">
+                  性别 (选填)
+                </label>
+                <input
+                  type="text"
+                  value={charGender}
+                  onChange={(e) => setCharGender(e.target.value)}
+                  placeholder="例：男、女、神秘"
                   className="w-full text-sm p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>

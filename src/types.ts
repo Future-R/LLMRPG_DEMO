@@ -9,6 +9,7 @@ export interface Attributes {
 
 export interface Character {
   name: string;
+  gender?: string;
   class: string;
   attributes: Attributes;
   traits: string[];
@@ -142,11 +143,14 @@ export const PERSONALITIES = [
 ];
 
 export interface ApiConfig {
-  modelEngine: "gemini" | "deepseek";
+  modelEngine: "gemini" | "deepseek" | "openai";
   geminiApiKey: string;
   deepseekApiKey: string;
   deepseekApiUrl: string;
   deepseekModel: string;
+  openaiApiKey: string;
+  openaiApiUrl: string;
+  openaiModel: string;
 }
 
 export function getApiConfig(): ApiConfig {
@@ -162,8 +166,11 @@ export function getApiConfig(): ApiConfig {
     modelEngine: "gemini",
     geminiApiKey: "",
     deepseekApiKey: "",
-    deepseekApiUrl: "https://api.deepseek.com/v1",
-    deepseekModel: "deepseek-chat"
+    deepseekApiUrl: "https://api.deepseek.com",
+    deepseekModel: "deepseek-v4-pro",
+    openaiApiKey: "",
+    openaiApiUrl: "https://api.openai.com/v1",
+    openaiModel: "gpt-4o"
   };
 }
 
