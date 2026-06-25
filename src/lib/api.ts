@@ -456,7 +456,7 @@ export async function generateEventAPI(payload: any) {
 你负责为玩家撰写精彩、动态、高响应性的剧情，并生成推荐选择。
 
 核心规则：
-1. 【高反馈度】：必须完全契合玩家选择或输入的行动（"${choiceOrAction}"）。如果玩家掷骰了（diceRoll），你必须将掷骰结果（例如：${diceRoll ? `掷骰值为 ${diceRoll.rollValue}，难度DC为 ${diceRoll.targetDc}，判定为 ${diceRoll.rollValue >= diceRoll.targetDc ? "成功" : "失败"}` : "无骰点"}）写进故事的发展里！
+1. 【高反馈度】：必须完全契合玩家选择或输入的行动（"${choiceOrAction}"）。如果玩家掷骰了（diceRoll），你必须将掷骰结果（例如：${diceRoll ? `总检定值为 ${diceRoll.total}（掷骰 ${diceRoll.rollValue} + 修正 ${diceRoll.modifier}），难度DC为 ${diceRoll.targetDc}，判定为 ${diceRoll.isSuccess ? "成功" : "失败"}` : "无骰点"}）写进故事的发展里！
    - 骰点成功：玩家帅气、精彩地达成了目的，或者获得了意料之外的好处。
    - 骰点失败：玩家遭遇挫折、陷入窘境、受伤、失去物品，或引发了更复杂的矛盾，但游戏绝不能在此戛然而止，必须有新的危机引导他们前进。
 2. 【属性与资源】：根据剧情发展，玩家的生命值(HP)、理智/资源值(Sanity)应当有动态增减，但不要直接让角色死亡，除非玩家生命归零（归零则判定为游戏结束，并给出相应的悲壮结局）。
@@ -510,9 +510,9 @@ ${
   diceRoll
     ? `【骰点结果反馈】
 进行【${diceRoll.attributeMatched}】检定：
-玩家掷出了：D20 = ${diceRoll.rollValue}
+玩家掷出了：D20 = ${diceRoll.rollValue}，修正 = ${diceRoll.modifier}，总计 = ${diceRoll.total}
 难度DC为：${diceRoll.targetDc}
-判定结果：${diceRoll.rollValue >= diceRoll.targetDc ? "【成功】" : "【失败】"}`
+判定结果：${diceRoll.isSuccess ? "【成功】" : "【失败】"}`
     : "（此行动为常规行动，无须骰点）"
 }`;
 
