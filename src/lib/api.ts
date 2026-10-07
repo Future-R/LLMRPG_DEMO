@@ -1,5 +1,117 @@
 import { GoogleGenAI, Type } from "@google/genai";
-import { getApiConfig, Character, HistoryTurn } from "../types";
+import {
+  getApiConfig,
+  Character,
+  HistoryTurn,
+  AttributeDefinition,
+  DEFAULT_ATTRIBUTE_DEFINITIONS,
+} from "../types";
+
+export async function redesignAttributesAPI(payload: {
+  genre: string;
+  direction?: string;
+}): Promise<AttributeDefinition[]> {
+  const config = getApiConfig();
+  const { genre, direction } = payload;
+
+  if (config.modelEngine === "gemini" && !config.geminiApiKey) {
+    throw new Error("请先在主页设置中填写并配置您的 Gemini API Key。");
+  }
+  if (config.modelEngine === "deepseek" && !config.deepseekApiKey) {
+    throw new Error("请先在主页设置中填写并配置您的 DeepSeek API Key。");
+  }
+  if (config.modelEngine === "openai" && !config.openaiApiKey) {
+    throw new Error("请先在主页设置中填写并配置您的 OpenAI API Key。");
+  }
+
+  const systemInstruction = `你是一位精通TRPG跑团规则架构的大师级设计师。你的任务是根据当前的世界观背景【${genre}】${direction ? `以及用户期望的设计方向【${direction}】` : ""}，深度定制一套极具代入感的专属【六维属性体系】（严格生成6项属性）。
+核心要求：
+1. 严禁使用千篇一律的通用“力量/敏捷/智力/魅力/意志/运气”，必须赋予契合题材的专有术语（例如玄幻修仙是“根骨、身法、神识、悟性、定力、气运”；科幻机甲是“同步率、机械抗性、算力、心智协议、威慑力、超限奇迹”等）。
+2. 属性槽位严格对应6个标准键：依序为 "strength", "agility", "intelligence", "charisma", "willpower", "luck"。
+3. 每个属性包含：
+   - key: 标准槽位键
+   - name: 沉浸式中文属性名（2-4字）
+   - abbr: 单字或双字简称（如“骨”、“身”、“识”）
+   - desc: 简明生动的效果释义（15-30字）
+4. 全部采用简体中文输出，格式严格符合要求的 JSON Schema。`;
+
+  const prompt = `世界观背景：【${genre}】\n设计倾向/方向：【${direction?.trim() || "深度定制契合世界观的独特六维"}】\n\n请设计专属于该题材的6项属性维度定义。`;
+
+  const responseSchema = {
+    type: "object",
+    properties: {
+      attributes: {
+        type: "array",
+        description: "专属于该世界观的6项属性定义",
+        items: {
+          type: "object",
+          properties: {
+            key: {
+              type: "string",
+              description: "属性槽位，严格依序为 strength, agility, intelligence, charisma, willpower, luck 之一",
+            },
+            name: { type: "string", description: "沉浸式属性名称" },
+            abbr: { type: "string", description: "单字或双字简称" },
+            desc: { type: "string", description: "属性职能与效果说明" },
+          },
+          required: ["key", "name", "abbr", "desc"],
+        },
+      },
+    },
+    required: ["attributes"],
+  };
+
+  if (config.modelEngine === "deepseek") {
+    const res = await generateContentWithDeepSeek({
+      contents: prompt,
+      systemInstruction,
+      responseSchema,
+      apiKey: config.deepseekApiKey,
+      apiUrl: config.deepseekApiUrl,
+      model: config.deepseekModel,
+    });
+    return res?.attributes?.length === 6 ? res.attributes : DEFAULT_ATTRIBUTE_DEFINITIONS;
+  } else if (config.modelEngine === "openai") {
+    const res = await generateContentWithDeepSeek({
+      contents: prompt,
+      systemInstruction,
+      responseSchema,
+      apiKey: config.openaiApiKey,
+      apiUrl: config.openaiApiUrl,
+      model: config.openaiModel,
+    });
+    return res?.attributes?.length === 6 ? res.attributes : DEFAULT_ATTRIBUTE_DEFINITIONS;
+  } else {
+    const response = await generateContentWithFallback({
+      contents: prompt,
+      systemInstruction,
+      apiKey: config.geminiApiKey,
+      responseSchema: {
+        type: Type.OBJECT,
+        properties: {
+          attributes: {
+            type: Type.ARRAY,
+            description: "专属于该世界观的6项属性定义",
+            items: {
+              type: Type.OBJECT,
+              properties: {
+                key: { type: Type.STRING },
+                name: { type: Type.STRING },
+                abbr: { type: Type.STRING },
+                desc: { type: Type.STRING },
+              },
+              required: ["key", "name", "abbr", "desc"],
+            },
+          },
+        },
+        required: ["attributes"],
+      },
+    });
+
+    const res = JSON.parse(response.text!);
+    return res?.attributes?.length === 6 ? res.attributes : DEFAULT_ATTRIBUTE_DEFINITIONS;
+  }
+}
 
 // A highly resilient helper to fetch content from DeepSeek or compatible OpenAI-like APIs
 async function generateContentWithDeepSeek(config: {
@@ -470,10 +582,11 @@ export async function generateEventAPI(payload: any) {
    - 骰点成功：玩家帅气、精彩地达成了目的，或者获得了意料之外的好处。
    - 骰点失败：玩家遭遇挫折、陷入窘境、受伤、失去物品，或引发了更复杂的矛盾，但游戏绝不能在此戛然而止，必须有新的危机引导他们前进。
 2. 【属性与资源】：根据剧情发展，玩家的生命值(HP)、理智/资源值(Sanity)应当有动态增减，但不要直接让角色死亡，除非玩家生命归零（归零则判定为游戏结束，并给出相应的悲壮结局）。
-3. 【推荐选择生成】：你必须生成 3-4 个后续的推荐行动选项：
+3. 【特质与心智演化（高频动态变动）】：根据玩家在遭遇中的表现、受到的创伤、心智震撼、领悟或异化，积极动态演变角色的天赋特质（traitChanges）。这涵盖重要天赋觉醒或突破，也包括轻微伤痕、临时状态、心灵印记（如『心神不宁』、『灵力紊乱』、『极度专注』等）。如本回合无变动，added和removed保持为空数组，reason为空字符串。
+4. 【推荐选择生成】：你必须生成 3-4 个后续的推荐行动选项：
    - 至少一个常规安全选项（正常观察或对话，不需要检定，或极低难度）。
-   - 至少两个需要进行属性检定（Skill Check）的高风险/高回报行动。每个检定选项必须写明检定的属性（力量、敏捷、智力、魅力、意志、运气中的一种）和建议的目标难度DC（8到18之间）。
-4. 【汉化风格】：完全采用简体中文，遣词造句极具跑团代入感，使用Markdown排版（请绝对避免使用斜体格式，如 \`*文字*\`，以免影响中文阅读体验）。
+   - 至少两个需要进行属性检定（Skill Check）的高风险/高回报行动。每个检定选项必须写明检定的属性对应键（如当前世界观六维之一）和建议的目标难度DC（8到18之间）。
+5. 【汉化风格】：完全采用简体中文，遣词造句极具跑团代入感，使用Markdown排版（请绝对避免使用斜体格式，如 \`*文字*\`，以免影响中文阅读体验）。
 
 当前GM人设指南：${personalityGuide}`;
 
@@ -504,25 +617,32 @@ ${h.rollResult ? `判定结果: ${h.rollResult}` : ""}`;
       "\n\n";
   }
 
-  const currentAttributes = character.attributes;
+  const attrDefs = character.attributeDefinitions || DEFAULT_ATTRIBUTE_DEFINITIONS;
+  const attrSummary = attrDefs
+    .map(
+      (def: any) =>
+        `${def.name} [属性键:${def.key}]: ${character.attributes[def.key] ?? 10}`,
+    )
+    .join(", ");
+
   const characterContext = `当前角色卡信息：
 - 名字: ${character.name}
 - 性别: ${character.gender || "未设定"}
 - 职业: ${character.class}
-- 状态: ${character.resourceName || "生命值"}: ${character.hp}/${character.maxHp || 100}, ${character.secondaryResourceName || "理智值"}: ${character.sanity}/${character.maxSanity || 100}
+- 状态: ${character.resourceName || "生命值"}: ${character.hp}/${character.maxHp || 100}, ${character.secondaryResourceName || "理智值"}: ${character.sanity}/${character.maxSanity || 100}${character.customStatusBars && character.customStatusBars.length > 0 ? `, ${character.customStatusBars.map((b: any) => `${b.name}: ${b.current}/${b.max}`).join(", ")}` : ""}
 - 携带物品: ${JSON.stringify(character.inventory || [])}
 - 天赋特质: ${JSON.stringify(character.traits || [])}
-- 属性值: 力量:${currentAttributes.strength}, 敏捷:${currentAttributes.agility}, 智力:${currentAttributes.intelligence}, 魅力:${currentAttributes.charisma}, 意志:${currentAttributes.willpower}, 运气:${currentAttributes.luck}`;
+- 当前六维属性体系: ${attrSummary}`;
 
   const actionContext = `【当前玩家的最新行动】
 行动: "${choiceOrAction}"
 ${
   diceRoll
     ? `【骰点结果反馈】
-进行【${diceRoll.attributeMatched}】检定：
-玩家掷出了：D20 = ${diceRoll.rollValue}，修正 = ${diceRoll.modifier}，总计 = ${diceRoll.total}
-难度DC为：${diceRoll.targetDc}
-判定结果：${diceRoll.isSuccess ? "【成功】" : "【失败】"}`
+进行【${diceRoll.attributeName || diceRoll.attributeMatched}】检定：
+基础掷骰：D20 = ${diceRoll.rollValue}，属性修正 = ${diceRoll.modifier >= 0 ? "+" : ""}${diceRoll.modifier}${diceRoll.traitBonus ? `，天赋特质加成 = ${diceRoll.traitBonus >= 0 ? "+" : ""}${diceRoll.traitBonus}${diceRoll.triggeredTraits?.length ? `（生效特质：${diceRoll.triggeredTraits.map((t: any) => t.name).join("、")}）` : ""}` : ""}，最终检定总和 = ${diceRoll.total}
+目标难度：${diceRoll.targetDc}
+判定结果：${diceRoll.isSuccess ? "【检定成功】" : "【检定失败】"}`
     : "（此行动为常规行动，无须骰点）"
 }`;
 
@@ -532,7 +652,7 @@ ${characterContext}
 ${actionContext}
 ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请高度参考并体现在新剧情中）】：\n"${guidancePrompt}"` : ""}
 
-请基于以上所有上下文，撰写下一个回合的剧情事件，并输出状态变化、新选项及物品变动。`;
+请基于以上所有上下文，撰写下一个回合的剧情事件，并输出状态变化、新选项、物品变动及特质动态变动。`;
 
   const responseSchema = {
     type: "object",
@@ -590,7 +710,7 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
             difficulty: {
               type: "string",
               description:
-                "对该选项的难度说明（例如：'敏捷 检定 (DC 13)' 或 '常规观察'）。",
+                "对该选项的难度说明（例如：'身法 检定 (DC 13)' 或 '常规观察'）。",
             },
             actionType: {
               type: "string",
@@ -600,7 +720,7 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
             attribute: {
               type: "string",
               description:
-                "检定对应的属性，必须是：'strength', 'agility', 'intelligence', 'charisma', 'willpower', 'luck', 'none' 之一。",
+                "检定对应的属性槽位键，如 'strength', 'agility', 'intelligence', 'charisma', 'willpower', 'luck' 或 'none'。",
             },
             targetDc: {
               type: "integer",
@@ -633,6 +753,28 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
         },
         required: ["added", "removed"],
       },
+      traitChanges: {
+        type: "object",
+        properties: {
+          added: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "本回合玩家获得或觉醒的新特质/天赋/临时状态列表（附带简短说明，例如：'极度专注：意志检定+2'；没有则为空数组）。",
+          },
+          removed: {
+            type: "array",
+            items: { type: "string" },
+            description:
+              "本回合玩家失去、消退或被替代的特质列表（没有则为空数组）。",
+          },
+          reason: {
+            type: "string",
+            description: "特质变动的生动剧情原因说明（没有变动则为空字符串）。",
+          },
+        },
+        required: ["added", "removed", "reason"],
+      },
       isGameOver: {
         type: "boolean",
         description:
@@ -650,6 +792,7 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
       "characterStatus",
       "recommendedChoices",
       "inventoryChanges",
+      "traitChanges",
       "isGameOver",
       "gameEndingType",
     ],
@@ -738,7 +881,7 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
                 difficulty: {
                   type: Type.STRING,
                   description:
-                    "对该选项的难度说明（例如：'敏捷 检定 (DC 13)' 或 '常规观察'）。",
+                    "对该选项的难度说明（例如：'身法 检定 (DC 13)' 或 '常规观察'）。",
                 },
                 actionType: {
                   type: Type.STRING,
@@ -748,7 +891,7 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
                 attribute: {
                   type: Type.STRING,
                   description:
-                    "检定对应的属性，必须是：'strength', 'agility', 'intelligence', 'charisma', 'willpower', 'luck', 'none' 之一。",
+                    "检定对应的属性槽位键，如 'strength', 'agility', 'intelligence', 'charisma', 'willpower', 'luck' 或 'none'。",
                 },
                 targetDc: {
                   type: Type.INTEGER,
@@ -781,6 +924,29 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
             },
             required: ["added", "removed"],
           },
+          traitChanges: {
+            type: Type.OBJECT,
+            properties: {
+              added: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description:
+                  "本回合玩家获得或觉醒的新特质/天赋/临时状态列表（附带简短说明；没有则为空数组）。",
+              },
+              removed: {
+                type: Type.ARRAY,
+                items: { type: Type.STRING },
+                description:
+                  "本回合玩家失去、消退或被替代的特质列表（没有则为空数组）。",
+              },
+              reason: {
+                type: Type.STRING,
+                description:
+                  "特质变动的生动剧情原因说明（没有变动则为空字符串）。",
+              },
+            },
+            required: ["added", "removed", "reason"],
+          },
           isGameOver: {
             type: Type.BOOLEAN,
             description:
@@ -798,6 +964,7 @@ ${guidancePrompt ? `\n【玩家对本回合故事走向的期望/提示词（请
           "characterStatus",
           "recommendedChoices",
           "inventoryChanges",
+          "traitChanges",
           "isGameOver",
           "gameEndingType",
         ],

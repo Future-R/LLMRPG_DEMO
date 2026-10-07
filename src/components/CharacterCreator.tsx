@@ -1,11 +1,38 @@
 import React, { useState, useEffect } from "react";
 import { saveAs } from "file-saver";
-import { PRESET_GENRES, PERSONALITIES, Character, Attributes } from "../types";
-import { negotiateCharacterAPI, generateEventAPI } from "../lib/api";
-import { Sparkles, MessageSquare, Check, RotateCcw, Plus, Trash, ArrowRight, User, BookOpen, Star, Briefcase, Scroll, RefreshCw } from "lucide-react";
+import {
+  PRESET_GENRES,
+  DEFAULT_ATTRIBUTE_DEFINITIONS,
+  Character,
+  Attributes,
+  AttributeDefinition,
+  getApiConfig,
+} from "../types";
+import {
+  negotiateCharacterAPI,
+  generateEventAPI,
+  redesignAttributesAPI,
+} from "../lib/api";
+import {
+  Sparkles,
+  MessageSquare,
+  Check,
+  Plus,
+  Trash,
+  ArrowRight,
+  BookOpen,
+  Star,
+  Briefcase,
+  Scroll,
+  RefreshCw,
+  Wand2,
+  X,
+  Sliders,
+} from "lucide-react";
 
 interface CharacterCreatorProps {
-  onComplete: (genre: string, character: Character, gmPersonality: string, initialEvent: any) => void;
+  onComplete: (genre: string, character: Character, initialEvent: any) => void;
+  systemPersonality?: string;
 }
 
 function useIsPortrait() {
@@ -21,23 +48,121 @@ function useIsPortrait() {
   return isPortrait;
 }
 
-export default function CharacterCreator({ onComplete }: CharacterCreatorProps) {
+export default function CharacterCreator({
+  onComplete,
+  systemPersonality,
+}: CharacterCreatorProps) {
   const isPortrait = useIsPortrait();
   const [activeStep, setActiveStep] = useState(1);
 
   // Selection States
   const [selectedGenreId, setSelectedGenreId] = useState(PRESET_GENRES[0].id);
   const [customGenre, setCustomGenre] = useState("");
-  const [selectedPersonality, setSelectedPersonality] = useState(PERSONALITIES[0].id);
 
-  // Character Sheet States (initially loaded from preset)
-  const currentPreset = PRESET_GENRES.find(g => g.id === selectedGenreId) || PRESET_GENRES[0];
+  // Current preset reference
+  const currentPreset =
+    PRESET_GENRES.find((g) => g.id === selectedGenreId) || null;
+
+  // Active 6-dimension attribute definitions (worldview-specific or AI-redesigned)
+  const [attributeDefinitions, setAttributeDefinitions] = useState<
+    AttributeDefinition[]
+  >(currentPreset?.attributeDefinitions || DEFAULT_ATTRIBUTE_DEFINITIONS);
+
+  // Flash Redesign Modal State
+  const [showRedesignModal, setShowRedesignModal] = useState(false);
+  const [redesignDirection, setRedesignDirection] = useState("");
+  const [isRedesigning, setIsRedesigning] = useState(false);
+  const [redesignNotice, setRedesignNotice] = useState("");
+
+  // Character Sheet States (preserved across worldview changes)
   const [charName, setCharName] = useState("");
   const [charGender, setCharGender] = useState("");
-  const [charClass, setCharClass] = useState(currentPreset.defaultClass);
-  const [attributes, setAttributes] = useState<Attributes>({ ...currentPreset.defaultAttributes });
-  const [traits, setTraits] = useState<string[]>([...currentPreset.defaultTraits]);
-  const [inventory, setInventory] = useState<string[]>([...currentPreset.defaultInventory]);
+  const [charClass, setCharClass] = useState(
+    currentPreset?.defaultClass || "散修",
+  );
+  const [attributes, setAttributes] = useState<Attributes>({
+    strength: 10,
+    agility: 12,
+    intelligence: 14,
+    charisma: 10,
+    willpower: 14,
+    luck: 10,
+  });
+  const [traits, setTraits] = useState<string[]>([
+    ...(currentPreset?.defaultTraits || []),
+  ]);
+  const [inventory, setInventory] = useState<string[]>([
+    ...(currentPreset?.defaultInventory || []),
+  ]);
+
+  // Sync state when preset genre changes - PRESERVES user character inputs!
+  const handleGenreChange = (genreId: string) => {
+    setSelectedGenreId(genreId);
+    const preset = PRESET_GENRES.find((g) => g.id === genreId);
+    if (preset) {
+      // 1. Update the 6-dimension definitions according to this worldview
+      setAttributeDefinitions(preset.attributeDefinitions);
+
+      // 2. Preserve character configurations:
+      // Keep charName, charGender, and currently allocated attribute points untouched!
+      // Only set class if user hasn't typed anything yet
+      if (!charClass.trim()) {
+        setCharClass(preset.defaultClass);
+      }
+      // If traits or inventory were empty, populate with this preset's defaults
+      if (traits.length === 0) {
+        setTraits([...preset.defaultTraits]);
+      }
+      if (inventory.length === 0) {
+        setInventory([...preset.defaultInventory]);
+      }
+    } else {
+      // Custom worldview: reset to default definitions unless user redesigns
+      setAttributeDefinitions(DEFAULT_ATTRIBUTE_DEFINITIONS);
+    }
+    setSuggestedSetup(null);
+    setNegotiationFeedback("");
+  };
+
+  // Optional manual sync to preset defaults
+  const handleSyncPresetDefaults = () => {
+    if (!currentPreset) return;
+    setCharClass(currentPreset.defaultClass);
+    setTraits([...currentPreset.defaultTraits]);
+    setInventory([...currentPreset.defaultInventory]);
+    setAttributeDefinitions(currentPreset.attributeDefinitions);
+  };
+
+  // Handle Flash Model Redesign of 6 Attributes
+  const handleRedesignAttributes = async () => {
+    if (isRedesigning) return;
+    setIsRedesigning(true);
+    setRedesignNotice("");
+    try {
+      const targetGenre =
+        selectedGenreId === "自定义"
+          ? customGenre.trim() || "自选奇幻冒险世界"
+          : currentPreset?.name || selectedGenreId;
+
+      const newDefs = await redesignAttributesAPI({
+        genre: targetGenre,
+        direction: redesignDirection.trim() || undefined,
+      });
+
+      if (newDefs && newDefs.length === 6) {
+        setAttributeDefinitions(newDefs);
+        setShowRedesignModal(false);
+        setRedesignNotice("六维属性已由 Flash 模型量身设计完成！");
+        setTimeout(() => setRedesignNotice(""), 3500);
+      } else {
+        throw new Error("模型生成的属性数量不符合要求，请重试。");
+      }
+    } catch (err: any) {
+      setRedesignNotice(err.message || "重新设计六维失败，请检查设置。");
+    } finally {
+      setIsRedesigning(false);
+    }
+  };
 
   // Export current starting setup as JSON file
   const handleExportSetup = () => {
@@ -49,12 +174,14 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
         charGender,
         charClass,
         attributes,
+        attributeDefinitions,
         traits,
         inventory,
-        selectedPersonality
       };
       const dataStr = JSON.stringify(setupData, null, 2);
-      const blob = new Blob([dataStr], { type: "application/json;charset=utf-8" });
+      const blob = new Blob([dataStr], {
+        type: "application/json;charset=utf-8",
+      });
       saveAs(blob, `trpg_setup_${charName || "冒险者"}.json`);
     } catch (err) {
       alert("导出配置失败，请重试。");
@@ -70,41 +197,48 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
         try {
           if (event.target?.result) {
             const imported = JSON.parse(event.target.result as string);
-            
-            // Support both standard starting setup and game save formats
+
             let genreId = imported.selectedGenreId || imported.genre;
             let customGen = imported.customGenre || "";
             let name = imported.charName || imported.name;
             let cls = imported.charClass || imported.class;
             let attrs = imported.attributes;
+            let customDefs = imported.attributeDefinitions;
             let characterTraits = imported.traits;
             let characterInventory = imported.inventory;
-            let personality = imported.selectedPersonality || imported.gmPersonality;
 
-            // If it's a full game save format (contains a character sub-object)
             if (imported.character) {
               const char = imported.character;
               if (char.name) name = char.name;
               if (char.class) cls = char.class;
               if (char.attributes) attrs = char.attributes;
+              if (char.attributeDefinitions) customDefs = char.attributeDefinitions;
               if (char.traits) characterTraits = char.traits;
               if (char.inventory) characterInventory = char.inventory;
             }
 
-            // Fallback to presets if some fields are missing
-            const targetPreset = PRESET_GENRES.find(g => g.id === genreId) || PRESET_GENRES[0];
+            const targetPreset =
+              PRESET_GENRES.find((g) => g.id === genreId) || null;
 
             if (genreId !== undefined) setSelectedGenreId(genreId);
             if (customGen !== undefined) setCustomGenre(customGen);
             if (name !== undefined) setCharName(name);
             if (cls !== undefined) setCharClass(cls);
-            
-            // For attributes, merge with target default attributes to prevent any missing keys
-            const mergedAttributes = {
-              ...(targetPreset?.defaultAttributes || { strength: 10, agility: 10, intelligence: 10, charisma: 10, willpower: 10, luck: 10 }),
-              ...(attrs || {})
-            };
-            setAttributes(mergedAttributes);
+
+            if (attrs) {
+              setAttributes((prev) => ({
+                ...prev,
+                ...attrs,
+              }));
+            }
+
+            if (customDefs && customDefs.length === 6) {
+              setAttributeDefinitions(customDefs);
+            } else if (targetPreset) {
+              setAttributeDefinitions(targetPreset.attributeDefinitions);
+            } else {
+              setAttributeDefinitions(DEFAULT_ATTRIBUTE_DEFINITIONS);
+            }
 
             if (characterTraits !== undefined) {
               setTraits([...characterTraits]);
@@ -118,14 +252,11 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
               setInventory([...targetPreset.defaultInventory]);
             }
 
-            if (personality !== undefined) setSelectedPersonality(personality);
-
             alert("成功导入开局配置！");
           }
         } catch (error) {
           alert("文件解析失败，请确保是一个有效的 JSON 配置文件。");
         } finally {
-          // Reset file input value to allow importing the same file again
           e.target.value = "";
         }
       };
@@ -134,7 +265,9 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
 
   // Attribute allocation system
   const maxAttributePoints = 72;
-  const currentPointsSum = Object.values(attributes).reduce((a, b) => a + b, 0);
+  const currentPointsSum = (attributeDefinitions || DEFAULT_ATTRIBUTE_DEFINITIONS)
+    .map((d) => attributes[d.key] ?? 10)
+    .reduce((a, b) => a + b, 0);
   const remainingPoints = maxAttributePoints - currentPointsSum;
 
   // New item / trait inputs
@@ -151,32 +284,17 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
   const [isLaunching, setIsLaunching] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
-  // Sync state when preset genre changes
-  const handleGenreChange = (genreId: string) => {
-    setSelectedGenreId(genreId);
-    const preset = PRESET_GENRES.find(g => g.id === genreId);
-    if (preset) {
-      setCharClass(preset.defaultClass);
-      setAttributes({ ...preset.defaultAttributes });
-      setTraits([...preset.defaultTraits]);
-      setInventory([...preset.defaultInventory]);
-      setSuggestedSetup(null);
-      setNegotiationFeedback("");
-    }
-  };
-
   // Adjust attributes with limit checks
-  const adjustAttribute = (key: keyof Attributes, amount: number) => {
-    const currentValue = attributes[key];
+  const adjustAttribute = (key: string, amount: number) => {
+    const currentValue = attributes[key] ?? 10;
     const newValue = currentValue + amount;
 
-    // Minimum stat of 4, max 20, and respect remaining points if increasing
     if (newValue < 4 || newValue > 20) return;
     if (amount > 0 && remainingPoints <= 0) return;
 
-    setAttributes(prev => ({
+    setAttributes((prev) => ({
       ...prev,
-      [key]: newValue
+      [key]: newValue,
     }));
   };
 
@@ -210,7 +328,10 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
     setIsNegotiating(true);
     setErrorMsg("");
 
-    const finalGenre = selectedGenreId === "自定义" ? customGenre || "自选奇幻冒险背景" : selectedGenreId;
+    const finalGenre =
+      selectedGenreId === "自定义"
+        ? customGenre || "自选奇幻冒险背景"
+        : selectedGenreId;
 
     try {
       const characterPayload = {
@@ -218,18 +339,29 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
         gender: charGender,
         class: charClass,
         attributes,
+        attributeDefinitions,
         traits,
         inventory,
-        hp: 100, maxHp: 100, sanity: 100, maxSanity: 100, resourceName: "生命值", secondaryResourceName: "理智值", backstory: ""
+        hp: 100,
+        maxHp: 100,
+        sanity: 100,
+        maxSanity: 100,
+        resourceName: currentPreset?.resourceName || "生命值",
+        secondaryResourceName: currentPreset?.secondaryResourceName || "理智值",
+        backstory: "",
       };
 
-      const data = await negotiateCharacterAPI(finalGenre, characterPayload, negotiationInput);
+      const data = await negotiateCharacterAPI(
+        finalGenre,
+        characterPayload,
+        negotiationInput,
+      );
 
       setNegotiationFeedback(data.feedback);
       setSuggestedSetup({
         attributes: data.suggestedAttributes,
         traits: data.suggestedTraits,
-        inventory: data.suggestedInventory
+        inventory: data.suggestedInventory,
       });
     } catch (err: any) {
       console.error(err);
@@ -242,10 +374,11 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
   // Apply suggested configuration from AI GM
   const applySuggestedSetup = () => {
     if (!suggestedSetup) return;
-    if (suggestedSetup.attributes) setAttributes({ ...suggestedSetup.attributes });
+    if (suggestedSetup.attributes)
+      setAttributes({ ...suggestedSetup.attributes });
     if (suggestedSetup.traits) setTraits([...suggestedSetup.traits]);
     if (suggestedSetup.inventory) setInventory([...suggestedSetup.inventory]);
-    setSuggestedSetup(null); // Clear suggestion after application
+    setSuggestedSetup(null);
   };
 
   // Final confirmation: Launch game and generate prologue
@@ -265,15 +398,18 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
 
     setIsLaunching(true);
 
-    const finalGenre = selectedGenreId === "自定义" ? customGenre.trim() : selectedGenreId;
-    const resourceName = currentPreset.resourceName || "生命值";
-    const secondaryResourceName = currentPreset.secondaryResourceName || "理智值";
+    const finalGenre =
+      selectedGenreId === "自定义" ? customGenre.trim() : selectedGenreId;
+    const resourceName = currentPreset?.resourceName || "生命值";
+    const secondaryResourceName =
+      currentPreset?.secondaryResourceName || "理智值";
 
     const characterData: Character = {
       name: charName.trim(),
       gender: charGender,
       class: charClass || "冒险者",
       attributes,
+      attributeDefinitions,
       traits,
       inventory,
       hp: 100,
@@ -282,24 +418,27 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
       maxSanity: 100,
       resourceName,
       secondaryResourceName,
-      backstory: negotiationFeedback || `在【${finalGenre}】世界开始的冒险。`
+      backstory: negotiationFeedback || `在【${finalGenre}】世界开始的冒险。`,
     };
 
     try {
-      // Generate initial event (Turn 1 / Prologue)
+      const activePersonality =
+        systemPersonality || getApiConfig().gmPersonality || "Dramatic";
       const payload = {
         genre: finalGenre,
         character: characterData,
         history: [],
         choiceOrAction: "开启我的宿命之旅",
-        gmPersonality: selectedPersonality
+        gmPersonality: activePersonality,
       };
 
       const initialEvent = await generateEventAPI(payload);
-      onComplete(finalGenre, characterData, selectedPersonality, initialEvent);
+      onComplete(finalGenre, characterData, initialEvent);
     } catch (err: any) {
       console.error(err);
-      setErrorMsg(err.message || "生成初始剧情失败，可能网络中断，请稍后再试。");
+      setErrorMsg(
+        err.message || "生成初始剧情失败，可能网络中断，请稍后再试。",
+      );
     } finally {
       setIsLaunching(false);
     }
@@ -328,7 +467,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                 : "text-zinc-500"
             }`}
           >
-            1. 背景分类与宿命性格
+            1. 世界观与背景设定
           </button>
           <button
             type="button"
@@ -339,21 +478,34 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                 : "text-zinc-500"
             }`}
           >
-            2. 属性、天赋与GM协商
+            2. 角色卡与属性加点
           </button>
         </div>
       )}
 
       <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-        
-        {/* LEFT COLUMN: Setup (Genre & Personality Selection) - 5 Cols */}
-        <div className={`${isPortrait ? (activeStep === 1 ? "block w-full" : "hidden") : "lg:col-span-5"} space-y-6`}>
+        {/* LEFT COLUMN: Setup (Genre Selection) - 5 Cols */}
+        <div
+          className={`${isPortrait ? (activeStep === 1 ? "block w-full" : "hidden") : "lg:col-span-5"} space-y-6`}
+        >
           {/* Card 1: Select Genre */}
           <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4">
-            <h2 className="font-serif text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <BookOpen className="w-5 h-5 text-amber-600" />
-              第1步：协商背景设定
-            </h2>
+            <div className="flex items-center justify-between">
+              <h2 className="font-serif text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                <BookOpen className="w-5 h-5 text-amber-600" />
+                第1步：协商背景设定
+              </h2>
+              {currentPreset && (
+                <button
+                  type="button"
+                  onClick={handleSyncPresetDefaults}
+                  title="将职业、推荐特质与物品重置为该世界观默认"
+                  className="text-[11px] text-amber-700 dark:text-amber-400 hover:underline font-medium"
+                >
+                  重置推荐特质与物品
+                </button>
+              )}
+            </div>
 
             <div className="space-y-3">
               <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block">
@@ -378,104 +530,130 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                 ))}
                 <button
                   onClick={() => handleGenreChange("自定义")}
-                  className={`p-3 rounded-xl border text-left transition-all ${
+                  className={`p-3 rounded-xl border text-left transition-all col-span-2 ${
                     selectedGenreId === "自定义"
                       ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/20 text-amber-900 dark:text-amber-400 font-medium"
                       : "border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
                   }`}
                 >
-                  <div className="text-sm font-semibold">自定义背景</div>
-                  <div className="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-1 mt-0.5">
-                    完全由玩家写下独特的世界观背景
+                  <div className="text-sm font-semibold">
+                    自定义自创背景
+                  </div>
+                  <div className="text-[10px] text-zinc-500 dark:text-zinc-400 mt-0.5">
+                    自由编写任意奇幻、科幻、同人世界观设定，完全打破条条框框。
                   </div>
                 </button>
               </div>
+
+              {/* Custom Genre Textbox */}
+              {selectedGenreId === "自定义" && (
+                <div className="space-y-2 pt-2 animate-fadeIn">
+                  <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block">
+                    输入你的故事背景设定
+                  </label>
+                  <textarea
+                    rows={4}
+                    value={customGenre}
+                    onChange={(e) => setCustomGenre(e.target.value)}
+                    placeholder="例如：在被异能黑雾笼罩的近未来学园都市，学生们依靠精神具象武装抵抗从异次元裂隙渗透的蚀心巨兽……"
+                    className="w-full text-xs p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+                  />
+                  <div className="flex items-center justify-end pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowRedesignModal(true)}
+                      className="px-2.5 py-1.5 bg-amber-500/10 hover:bg-amber-500/20 text-amber-800 dark:text-amber-400 border border-amber-500/30 rounded-lg text-xs font-semibold transition-all flex items-center gap-1"
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-amber-600" />
+                      重新设计六维
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
 
-            {selectedGenreId === "自定义" && (
-              <div className="space-y-2 pt-2 animate-fadeIn">
-                <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 block">
-                  输入你的自定义世界观背景
-                </label>
-                <textarea
-                  value={customGenre}
-                  onChange={(e) => setCustomGenre(e.target.value)}
-                  placeholder="例如：一个失落的蒸汽朋克飞空艇国度，空中满是飞空巨兽，玩家要寻找天空岛的古老能量石..."
-                  rows={3}
-                  className="w-full text-sm p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
-                />
-              </div>
-            )}
-
-            <div className="p-3 bg-amber-50/40 dark:bg-amber-950/10 rounded-xl border border-amber-200/30 text-xs text-amber-800 dark:text-amber-400 leading-relaxed">
-              <strong>世界观简介:</strong> {PRESET_GENRES.find(g => g.id === selectedGenreId)?.desc || "自由书写你的故事。在此世界，你作为冒险者的生死存亡全凭属性和随机的骰运定夺。"}
-            </div>
-          </div>
-
-          {/* Card 2: Select GM Personality */}
-          <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-4">
-            <h2 className="font-serif text-xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
-              <User className="w-5 h-5 text-amber-600" />
-              第2步：选择主持人性格
-            </h2>
-            <div className="space-y-3">
-              {PERSONALITIES.map((pers) => (
+            {/* Display Active Worldview Attributes Overview */}
+            <div className="border-t border-zinc-150 dark:border-zinc-800/80 pt-4 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-semibold text-zinc-600 dark:text-zinc-400">
+                  当前世界观特色六维：
+                </span>
                 <button
-                  key={pers.id}
-                  onClick={() => setSelectedPersonality(pers.id)}
-                  className={`w-full p-4 rounded-xl border text-left transition-all block ${
-                    selectedPersonality === pers.id
-                      ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/20 text-amber-900 dark:text-amber-400"
-                      : "border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800 text-zinc-700 dark:text-zinc-300"
-                  }`}
+                  type="button"
+                  onClick={() => setShowRedesignModal(true)}
+                  className="text-[11px] text-amber-600 dark:text-amber-400 hover:underline flex items-center gap-1"
                 >
-                  <div className="text-sm font-semibold flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500"></span>
-                    {pers.name}
-                  </div>
-                  <div className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
-                    {pers.desc}
-                  </div>
+                  <Wand2 className="w-3 h-3" />
+                  Flash 重构六维
                 </button>
-              ))}
+              </div>
+              <div className="grid grid-cols-3 gap-2">
+                {attributeDefinitions.map((def) => (
+                  <div
+                    key={def.key}
+                    className="p-2 rounded-lg bg-zinc-50 dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800/70"
+                  >
+                    <div className="text-xs font-bold text-zinc-800 dark:text-zinc-200 flex items-center justify-between">
+                      <span>{def.name}</span>
+                      <span className="text-[10px] text-amber-600 font-mono">
+                        {def.abbr}
+                      </span>
+                    </div>
+                    <div className="text-[9px] text-zinc-400 line-clamp-1 mt-0.5">
+                      {def.desc}
+                    </div>
+                  </div>
+                ))}
+              </div>
             </div>
           </div>
         </div>
 
         {/* RIGHT COLUMN: Character Sheet & Customizer - 7 Cols */}
-        <div className={`${isPortrait ? (activeStep === 2 ? "block w-full" : "hidden") : "lg:col-span-7"} space-y-6`}>
+        <div
+          className={`${isPortrait ? (activeStep === 2 ? "block w-full" : "hidden") : "lg:col-span-7"} space-y-6`}
+        >
           <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 shadow-sm space-y-6">
             <div className="flex flex-wrap items-center justify-between gap-4 border-b border-zinc-150 dark:border-zinc-800 pb-4">
               <h2 className="font-serif text-2xl font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
                 <Sparkles className="w-6 h-6 text-amber-600" />
-                第3步：设定主角卡
+                第2步：设定主角卡
               </h2>
-              <div className="text-xs px-3 py-1 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-400 rounded-full font-semibold">
-                可用属性点: {remainingPoints}
+              <div className="flex items-center gap-2">
+                <div className="text-xs px-3 py-1 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-400 rounded-full font-semibold tabular-nums">
+                  可用属性点: {remainingPoints}
+                </div>
               </div>
             </div>
 
             {/* Export / Import Config Buttons */}
-            <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 dark:border-zinc-800/60 pb-4 text-xs">
-              <span className="text-zinc-500 font-semibold">开局配置备份:</span>
-              <button
-                type="button"
-                onClick={handleExportSetup}
-                className="px-2.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-zinc-800 dark:text-zinc-200 rounded-lg font-bold transition-colors flex items-center gap-1"
-              >
-                <Scroll className="w-3.5 h-3.5 text-amber-600" />
-                导出配置 JSON
-              </button>
-              <label className="px-2.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-zinc-800 dark:text-zinc-200 rounded-lg font-bold transition-colors flex items-center gap-1 cursor-pointer">
-                <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
-                导入配置 JSON
-                <input
-                  type="file"
-                  accept=".json"
-                  onChange={handleImportSetup}
-                  className="hidden"
-                />
-              </label>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-100 dark:border-zinc-800/60 pb-4 text-xs">
+              <div className="flex items-center gap-2">
+                <span className="text-zinc-500 font-semibold">开局配置:</span>
+                <button
+                  type="button"
+                  onClick={handleExportSetup}
+                  className="px-2.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-zinc-800 dark:text-zinc-200 rounded-lg font-bold transition-colors flex items-center gap-1"
+                >
+                  <Scroll className="w-3.5 h-3.5 text-amber-600" />
+                  导出配置 JSON
+                </button>
+                <label className="px-2.5 py-1.5 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-750 text-zinc-800 dark:text-zinc-200 rounded-lg font-bold transition-colors flex items-center gap-1 cursor-pointer">
+                  <RefreshCw className="w-3.5 h-3.5 text-amber-600" />
+                  导入配置 JSON
+                  <input
+                    type="file"
+                    accept=".json"
+                    onChange={handleImportSetup}
+                    className="hidden"
+                  />
+                </label>
+              </div>
+              {redesignNotice && (
+                <span className="text-xs text-amber-600 dark:text-amber-400 font-medium">
+                  {redesignNotice}
+                </span>
+              )}
             </div>
 
             {/* Input name, gender and class */}
@@ -500,7 +678,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                   type="text"
                   value={charGender}
                   onChange={(e) => setCharGender(e.target.value)}
-                  placeholder="例：男、女、神秘"
+                  placeholder="例：女、男、未知"
                   className="w-full text-sm p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
                 />
               </div>
@@ -516,7 +694,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                     placeholder="输入职业，如：散修剑客、荒野法师"
                     className="w-full text-sm p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
                   />
-                  {currentPreset.classes && (
+                  {currentPreset?.classes && (
                     <div className="flex flex-wrap gap-1.5 mt-2">
                       {currentPreset.classes.map((cls) => (
                         <button
@@ -534,174 +712,90 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
               </div>
             </div>
 
-            {/* Slider Attributes */}
+            {/* Slider Attributes - DYNAMIC SIX DIMENSIONS */}
             <div className="space-y-3">
-              <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block">
-                属性加点（合理属性让你在后续骰点检定中占据极大优势）
-              </label>
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block">
+                  六维属性加点（根据【{selectedGenreId}】世界观特色量身划分）
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowRedesignModal(true)}
+                  className="text-xs text-amber-700 dark:text-amber-400 hover:underline flex items-center gap-1 font-semibold"
+                >
+                  <Sparkles className="w-3.5 h-3.5" />
+                  重新设计六维
+                </button>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 bg-zinc-50 dark:bg-zinc-950 p-4 rounded-2xl border border-zinc-100 dark:border-zinc-900">
-                
-                {/* Strength */}
-                <div className="flex items-center justify-between p-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-150 dark:border-zinc-800">
-                  <div>
-                    <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">力量 (STR)</span>
-                    <span className="text-[10px] block text-zinc-400">肉搏、破门、负重</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => adjustAttribute("strength", -1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
+                {attributeDefinitions.map((def) => {
+                  const val = attributes[def.key] ?? 10;
+                  return (
+                    <div
+                      key={def.key}
+                      className="flex items-center justify-between p-3 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-150 dark:border-zinc-800 shadow-xs"
                     >
-                      -
-                    </button>
-                    <span className="w-6 text-center text-sm font-extrabold text-amber-700 dark:text-amber-500">{attributes.strength}</span>
-                    <button
-                      onClick={() => adjustAttribute("strength", 1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* Agility */}
-                <div className="flex items-center justify-between p-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-150 dark:border-zinc-800">
-                  <div>
-                    <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">敏捷 (AGI)</span>
-                    <span className="text-[10px] block text-zinc-400">躲避、潜行、盗窃</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => adjustAttribute("agility", -1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      -
-                    </button>
-                    <span className="w-6 text-center text-sm font-extrabold text-amber-700 dark:text-amber-500">{attributes.agility}</span>
-                    <button
-                      onClick={() => adjustAttribute("agility", 1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* Intelligence */}
-                <div className="flex items-center justify-between p-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-150 dark:border-zinc-800">
-                  <div>
-                    <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">智力 (INT)</span>
-                    <span className="text-[10px] block text-zinc-400">魔法、知识、侦察解密</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => adjustAttribute("intelligence", -1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      -
-                    </button>
-                    <span className="w-6 text-center text-sm font-extrabold text-amber-700 dark:text-amber-500">{attributes.intelligence}</span>
-                    <button
-                      onClick={() => adjustAttribute("intelligence", 1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* Charisma */}
-                <div className="flex items-center justify-between p-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-150 dark:border-zinc-800">
-                  <div>
-                    <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">魅力 (CHA)</span>
-                    <span className="text-[10px] block text-zinc-400">说服、威吓、交涉、交易</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => adjustAttribute("charisma", -1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      -
-                    </button>
-                    <span className="w-6 text-center text-sm font-extrabold text-amber-700 dark:text-amber-500">{attributes.charisma}</span>
-                    <button
-                      onClick={() => adjustAttribute("charisma", 1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* Willpower */}
-                <div className="flex items-center justify-between p-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-150 dark:border-zinc-800">
-                  <div>
-                    <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">意志 (WIL)</span>
-                    <span className="text-[10px] block text-zinc-400">精神防御、坚韧、法防</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => adjustAttribute("willpower", -1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      -
-                    </button>
-                    <span className="w-6 text-center text-sm font-extrabold text-amber-700 dark:text-amber-500">{attributes.willpower}</span>
-                    <button
-                      onClick={() => adjustAttribute("willpower", 1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
-                {/* Luck */}
-                <div className="flex items-center justify-between p-2 bg-white dark:bg-zinc-900 rounded-xl border border-zinc-150 dark:border-zinc-800">
-                  <div>
-                    <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">运气 (LCK)</span>
-                    <span className="text-[10px] block text-zinc-400">寻宝、绝地逢生、暴击</span>
-                  </div>
-                  <div className="flex items-center gap-3">
-                    <button
-                      onClick={() => adjustAttribute("luck", -1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      -
-                    </button>
-                    <span className="w-6 text-center text-sm font-extrabold text-amber-700 dark:text-amber-500">{attributes.luck}</span>
-                    <button
-                      onClick={() => adjustAttribute("luck", 1)}
-                      className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold"
-                    >
-                      +
-                    </button>
-                  </div>
-                </div>
-
+                      <div className="flex-1 pr-2">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-bold text-zinc-800 dark:text-zinc-200">
+                            {def.name}
+                          </span>
+                        </div>
+                        <span className="text-[10px] block text-zinc-400 mt-0.5 line-clamp-1">
+                          {def.desc}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => adjustAttribute(def.key, -1)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold transition-colors"
+                        >
+                          -
+                        </button>
+                        <span className="w-6 text-center text-sm font-extrabold text-amber-700 dark:text-amber-500 tabular-nums">
+                          {val}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => adjustAttribute(def.key, 1)}
+                          className="w-7 h-7 flex items-center justify-center rounded-lg bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 hover:bg-zinc-200 dark:hover:bg-zinc-700 font-bold transition-colors"
+                        >
+                          +
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
 
             {/* Dynamic Items and Traits List */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
               {/* Traits section */}
               <div className="space-y-3">
                 <label className="text-xs font-semibold text-zinc-500 dark:text-zinc-400 uppercase tracking-wider block flex items-center justify-between">
                   <span>角色特质 / 天赋</span>
-                  <span className="text-[10px] text-zinc-400">可自由增删</span>
+                  <span className="text-[10px] text-zinc-400">可在故事中动态演变</span>
                 </label>
                 <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 bg-zinc-50 dark:bg-zinc-950 space-y-2 min-h-[140px] max-h-[220px] overflow-y-auto">
                   {traits.length === 0 ? (
-                    <div className="text-xs text-zinc-400 text-center py-8">暂无特质，请在下方添加或与主持人协商。</div>
+                    <div className="text-xs text-zinc-400 text-center py-8">
+                      暂无特质，请在下方添加或与主持人协商。
+                    </div>
                   ) : (
                     traits.map((trait, index) => (
-                      <div key={index} className="flex items-center justify-between bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-150 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200">
+                      <div
+                        key={index}
+                        className="flex items-center justify-between bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-150 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200"
+                      >
                         <span className="font-medium flex items-center gap-1.5">
                           <Star className="w-3.5 h-3.5 text-amber-500" />
                           {trait}
                         </span>
                         <button
+                          type="button"
                           onClick={() => handleRemoveTrait(index)}
                           className="text-zinc-400 hover:text-red-500 transition-colors"
                         >
@@ -721,6 +815,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                     onKeyDown={(e) => e.key === "Enter" && handleAddTrait()}
                   />
                   <button
+                    type="button"
                     onClick={handleAddTrait}
                     className="p-2.5 bg-zinc-800 dark:bg-zinc-700 text-white rounded-lg hover:bg-amber-600 transition-colors"
                   >
@@ -737,15 +832,21 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                 </label>
                 <div className="border border-zinc-200 dark:border-zinc-800 rounded-xl p-3 bg-zinc-50 dark:bg-zinc-950 space-y-2 min-h-[140px] max-h-[220px] overflow-y-auto">
                   {inventory.length === 0 ? (
-                    <div className="text-xs text-zinc-400 text-center py-8">包囊空空如也...请添加一些生存装备！</div>
+                    <div className="text-xs text-zinc-400 text-center py-8">
+                      包囊空空如也...请添加一些生存装备！
+                    </div>
                   ) : (
                     inventory.map((item, index) => (
-                      <div key={index} className="flex items-center justify-between bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-150 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200">
+                      <div
+                        key={index}
+                        className="flex items-center justify-between bg-white dark:bg-zinc-900 px-3 py-1.5 rounded-lg border border-zinc-150 dark:border-zinc-800 text-xs text-zinc-800 dark:text-zinc-200"
+                      >
                         <span className="font-medium flex items-center gap-1.5">
                           <Briefcase className="w-3.5 h-3.5 text-zinc-500" />
                           {item}
                         </span>
                         <button
+                          type="button"
                           onClick={() => handleRemoveItem(index)}
                           className="text-zinc-400 hover:text-red-500 transition-colors"
                         >
@@ -765,6 +866,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                     onKeyDown={(e) => e.key === "Enter" && handleAddItem()}
                   />
                   <button
+                    type="button"
                     onClick={handleAddItem}
                     className="p-2.5 bg-zinc-800 dark:bg-zinc-700 text-white rounded-lg hover:bg-amber-600 transition-colors"
                   >
@@ -772,15 +874,14 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                   </button>
                 </div>
               </div>
-
             </div>
 
-            {/* NEGO TIATION SECTION - PLAYER TALK WITH GM */}
+            {/* NEGOTIATION SECTION - PLAYER TALK WITH GM */}
             <div className="border-t border-zinc-200 dark:border-zinc-800 pt-6 space-y-4">
               <div className="flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-amber-600" />
                 <h3 className="text-sm font-bold text-zinc-900 dark:text-zinc-100">
-                  与 AI 游戏主持人(GM) 互动协商
+                  与 AI 跑团主持人互动协商
                 </h3>
               </div>
               <p className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -797,6 +898,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                   onKeyDown={(e) => e.key === "Enter" && handleNegotiate()}
                 />
                 <button
+                  type="button"
                   onClick={handleNegotiate}
                   disabled={isNegotiating}
                   className="px-4 py-3 bg-amber-500 text-zinc-900 rounded-xl font-semibold hover:bg-amber-600 transition-colors text-xs flex items-center justify-center gap-1.5 disabled:opacity-50"
@@ -809,7 +911,9 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
               {/* Negotiation AI Response */}
               {negotiationFeedback && (
                 <div className="bg-amber-50/50 dark:bg-amber-950/10 p-4 rounded-xl border border-amber-200/30 text-xs leading-relaxed space-y-3 animate-fadeIn text-zinc-700 dark:text-zinc-300">
-                  <div className="font-bold text-amber-900 dark:text-amber-500">主持人的协商建议：</div>
+                  <div className="font-bold text-amber-900 dark:text-amber-500">
+                    主持人的协商建议：
+                  </div>
                   <p>{negotiationFeedback}</p>
 
                   {suggestedSetup && (
@@ -818,6 +922,7 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
                         主持人提供了一套匹配此设定的属性、天赋与装备：
                       </span>
                       <button
+                        type="button"
                         onClick={applySuggestedSetup}
                         className="px-2.5 py-1 bg-green-600 text-white font-medium hover:bg-green-700 transition-colors rounded text-[10px] flex items-center gap-1"
                       >
@@ -838,19 +943,104 @@ export default function CharacterCreator({ onComplete }: CharacterCreatorProps) 
               )}
               <div className="flex-1"></div>
               <button
+                type="button"
                 onClick={handleLaunchGame}
                 disabled={isLaunching || isNegotiating}
-                className="w-full md:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm"
+                className="w-full md:w-auto px-8 py-3.5 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl font-bold transition-all shadow-md hover:shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 text-sm cursor-pointer"
               >
                 {isLaunching ? "正在生成序章事件..." : "开启我的宿命之旅"}
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
-
           </div>
         </div>
-
       </div>
+
+      {/* FLASH REDESIGN 6D ATTRIBUTES MODAL */}
+      {showRedesignModal && (
+        <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-zinc-900 rounded-2xl max-w-lg w-full p-6 border border-zinc-200 dark:border-zinc-800 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-150 dark:border-zinc-800">
+              <h3 className="font-serif text-lg font-bold text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                <Sparkles className="w-5 h-5 text-amber-600" />
+                重新设计六维属性体系
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowRedesignModal(false)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+              根据当前世界观设定【
+              <span className="font-semibold text-amber-600">
+                {selectedGenreId === "自定义"
+                  ? customGenre || "自定义世界"
+                  : selectedGenreId}
+              </span>
+              】，调用 Flash 模型深度定制 6 个独一无二的专属属性维度与释义。
+            </p>
+
+            <div className="space-y-2">
+              <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300 block">
+                设计倾向 / 风格方向（选填，可留空）：
+              </label>
+              <textarea
+                rows={3}
+                value={redesignDirection}
+                onChange={(e) => setRedesignDirection(e.target.value)}
+                placeholder="例如：东方修真灵气心法流、克苏鲁诡异调查员、废土机甲肉身改造、日系二次元魔女契约……也可以留空，模型将根据背景自由发挥。"
+                className="w-full text-xs p-3 rounded-xl border border-zinc-200 dark:border-zinc-800 bg-zinc-50 dark:bg-zinc-950 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-2 focus:ring-amber-500"
+              />
+            </div>
+
+            <div className="flex items-center justify-between pt-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setAttributeDefinitions(DEFAULT_ATTRIBUTE_DEFINITIONS);
+                  setShowRedesignModal(false);
+                  setRedesignNotice("已重置为通用经典六维属性。");
+                }}
+                className="text-xs text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300 font-medium"
+              >
+                恢复默认经典六维
+              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setShowRedesignModal(false)}
+                  className="px-4 py-2 rounded-xl border border-zinc-200 dark:border-zinc-800 text-xs font-semibold text-zinc-700 dark:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800 transition-colors"
+                >
+                  取消
+                </button>
+                <button
+                  type="button"
+                  disabled={isRedesigning}
+                  onClick={handleRedesignAttributes}
+                  className="px-4 py-2 bg-gradient-to-r from-amber-600 to-amber-700 hover:from-amber-700 hover:to-amber-800 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-1.5 disabled:opacity-50"
+                >
+                  {isRedesigning ? (
+                    <>
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                      Flash 构思设计中...
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-3.5 h-3.5" />
+                      立即生成定制六维
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

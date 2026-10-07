@@ -1,6 +1,15 @@
-import React, { useState, useRef, useEffect } from "react";
-import { Character, HistoryTurn, RecommendedChoice } from "../types";
+import React, { useState, useRef, useEffect, useMemo } from "react";
+import {
+  Character,
+  HistoryTurn,
+  RecommendedChoice,
+  PERSONALITIES,
+  AttributeDefinition,
+  DEFAULT_ATTRIBUTE_DEFINITIONS,
+  CustomStatusBar,
+} from "../types";
 import { generateEventAPI, compressHistoryAPI } from "../lib/api";
+import { evaluateTraitBonus, TraitEvaluationResult } from "../lib/traitBonus";
 import {
   Dice5,
   User,
@@ -16,6 +25,17 @@ import {
   Heart,
   Edit3,
   RotateCcw,
+  Settings,
+  X,
+  Star,
+  Trash,
+  Plus,
+  Trash2,
+  Terminal,
+  Check,
+  Minus,
+  Wrench,
+  Sliders,
 } from "lucide-react";
 import Markdown from "react-markdown";
 
@@ -30,6 +50,7 @@ interface GameScreenProps {
   initialLastActionText?: string;
   initialLastDiceRoll?: any;
   onExit: () => void;
+  onChangePersonality?: (pers: string) => void;
 }
 
 export default function GameScreen({
@@ -43,6 +64,7 @@ export default function GameScreen({
   initialLastActionText = "",
   initialLastDiceRoll = null,
   onExit,
+  onChangePersonality,
 }: GameScreenProps) {
   // Game states
   const [character, setCharacter] = useState<Character>({
@@ -115,10 +137,272 @@ export default function GameScreen({
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
 
+  // GM personality & System settings
+  const [activeGmPersonality, setActiveGmPersonality] = useState<string>(
+    gmPersonality || "Dramatic",
+  );
+  const [showGmSettingsModal, setShowGmSettingsModal] = useState(false);
+
+  // Dynamic Trait Evolution Notification State
+  const [traitNotice, setTraitNotice] = useState<{
+    isOpen: boolean;
+    added: string[];
+    removed: string[];
+    reason: string;
+  } | null>(null);
+
   // Save / Load status notifications
   const [saveStatus, setSaveStatus] = useState("");
   const [showSaveModal, setShowSaveModal] = useState(false);
   const [saveSlots, setSaveSlots] = useState<(any | null)[]>(new Array(9).fill(null));
+
+  // Developer Mode (隐蔽入口与增删改状态条/特质)
+  const [isDevMode, setIsDevMode] = useState(false);
+  const [showDevModal, setShowDevModal] = useState(false);
+
+  // 3-click secret trigger for developer mode (无悬浮提示，需连击3下才切换)
+  const devClickCountRef = useRef(0);
+  const devClickTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  const handleTurnCounterClick = () => {
+    devClickCountRef.current += 1;
+    if (devClickTimerRef.current) {
+      clearTimeout(devClickTimerRef.current);
+    }
+
+    if (devClickCountRef.current >= 3) {
+      devClickCountRef.current = 0;
+      setIsDevMode((prev) => !prev);
+    } else {
+      devClickTimerRef.current = setTimeout(() => {
+        devClickCountRef.current = 0;
+      }, 1000);
+    }
+  };
+
+  // Trait editing in Dev Mode
+  const [isAddingTrait, setIsAddingTrait] = useState(false);
+  const [newTraitText, setNewTraitText] = useState("");
+  const [editingTraitIndex, setEditingTraitIndex] = useState<number | null>(null);
+  const [editingTraitText, setEditingTraitText] = useState("");
+
+  // Status Bar editing in Dev Mode
+  const [editingStatusBarId, setEditingStatusBarId] = useState<string | null>(null);
+  const [editingBarForm, setEditingBarForm] = useState<{
+    name: string;
+    current: number;
+    max: number;
+    color: string;
+  }>({ name: "", current: 100, max: 100, color: "blue" });
+
+  const [isAddingStatusBar, setIsAddingStatusBar] = useState(false);
+  const [newBarForm, setNewBarForm] = useState<{
+    name: string;
+    current: number;
+    max: number;
+    color: string;
+  }>({ name: "行动点 (AP)", current: 3, max: 3, color: "blue" });
+
+  const getStatusBarColorConfig = (colorName?: string) => {
+    switch (colorName) {
+      case "red":
+        return {
+          bar: "bg-red-500",
+          text: "text-red-700 dark:text-red-400",
+          border: "border-red-500/30",
+          bg: "bg-red-500/10",
+        };
+      case "purple":
+        return {
+          bar: "bg-purple-500",
+          text: "text-purple-700 dark:text-purple-400",
+          border: "border-purple-500/30",
+          bg: "bg-purple-500/10",
+        };
+      case "blue":
+        return {
+          bar: "bg-blue-500",
+          text: "text-blue-700 dark:text-blue-400",
+          border: "border-blue-500/30",
+          bg: "bg-blue-500/10",
+        };
+      case "emerald":
+      case "green":
+        return {
+          bar: "bg-emerald-500",
+          text: "text-emerald-700 dark:text-emerald-400",
+          border: "border-emerald-500/30",
+          bg: "bg-emerald-500/10",
+        };
+      case "amber":
+      case "yellow":
+        return {
+          bar: "bg-amber-500",
+          text: "text-amber-700 dark:text-amber-400",
+          border: "border-amber-500/30",
+          bg: "bg-amber-500/10",
+        };
+      case "cyan":
+        return {
+          bar: "bg-cyan-500",
+          text: "text-cyan-700 dark:text-cyan-400",
+          border: "border-cyan-500/30",
+          bg: "bg-cyan-500/10",
+        };
+      default:
+        return {
+          bar: "bg-blue-500",
+          text: "text-blue-700 dark:text-blue-400",
+          border: "border-blue-500/30",
+          bg: "bg-blue-500/10",
+        };
+    }
+  };
+
+  // Status Bar management handlers
+  const handleUpdatePrimaryBar = (name: string, current: number, max: number) => {
+    setCharacter((prev) => ({
+      ...prev,
+      resourceName: name.trim() || "主要资源",
+      hp: Math.max(0, Number(current)),
+      maxHp: Math.max(1, Number(max)),
+    }));
+    setEditingStatusBarId(null);
+  };
+
+  const handleUpdateSecondaryBar = (name: string, current: number, max: number) => {
+    setCharacter((prev) => ({
+      ...prev,
+      secondaryResourceName: name.trim() || "次要资源",
+      sanity: Math.max(0, Number(current)),
+      maxSanity: Math.max(1, Number(max)),
+    }));
+    setEditingStatusBarId(null);
+  };
+
+  const handleDeleteSecondaryBar = () => {
+    setCharacter((prev) => ({
+      ...prev,
+      secondaryResourceName: "",
+      maxSanity: 0,
+      sanity: 0,
+    }));
+    if (editingStatusBarId === "secondary") setEditingStatusBarId(null);
+  };
+
+  const handleAddCustomStatusBar = (
+    name: string,
+    current: number,
+    max: number,
+    color = "blue",
+  ) => {
+    if (!name.trim()) return;
+    const newBar: CustomStatusBar = {
+      id: `custom_${Date.now()}_${Math.random().toString(36).substring(2, 6)}`,
+      name: name.trim(),
+      current: Number(current),
+      max: Math.max(1, Number(max)),
+      color,
+    };
+    setCharacter((prev) => ({
+      ...prev,
+      customStatusBars: [...(prev.customStatusBars || []), newBar],
+    }));
+    setIsAddingStatusBar(false);
+    setNewBarForm({ name: "行动点 (AP)", current: 3, max: 3, color: "blue" });
+  };
+
+  const handleUpdateCustomStatusBar = (
+    id: string,
+    name: string,
+    current: number,
+    max: number,
+    color: string,
+  ) => {
+    setCharacter((prev) => ({
+      ...prev,
+      customStatusBars: (prev.customStatusBars || []).map((b) =>
+        b.id === id
+          ? {
+              ...b,
+              name: name.trim() || b.name,
+              current: Number(current),
+              max: Math.max(1, Number(max)),
+              color: color || b.color,
+            }
+          : b,
+      ),
+    }));
+    setEditingStatusBarId(null);
+  };
+
+  const handleDeleteCustomStatusBar = (id: string) => {
+    setCharacter((prev) => ({
+      ...prev,
+      customStatusBars: (prev.customStatusBars || []).filter((b) => b.id !== id),
+    }));
+    if (editingStatusBarId === id) setEditingStatusBarId(null);
+  };
+
+  const stepStatusBarValue = (id: string, delta: number) => {
+    if (id === "primary") {
+      setCharacter((prev) => ({
+        ...prev,
+        hp: Math.max(0, Math.min(prev.maxHp, prev.hp + delta)),
+      }));
+    } else if (id === "secondary") {
+      setCharacter((prev) => ({
+        ...prev,
+        sanity: Math.max(0, Math.min(prev.maxSanity, prev.sanity + delta)),
+      }));
+    } else {
+      setCharacter((prev) => ({
+        ...prev,
+        customStatusBars: (prev.customStatusBars || []).map((b) =>
+          b.id === id
+            ? { ...b, current: Math.max(0, Math.min(b.max, b.current + delta)) }
+            : b,
+        ),
+      }));
+    }
+  };
+
+  // Trait management handlers
+  const handleAddTrait = (traitName: string) => {
+    if (!traitName.trim()) return;
+    if (character.traits.includes(traitName.trim())) return;
+    setCharacter((prev) => ({
+      ...prev,
+      traits: [...prev.traits, traitName.trim()],
+    }));
+    setNewTraitText("");
+    setIsAddingTrait(false);
+  };
+
+  const handleUpdateTrait = (index: number, newName: string) => {
+    if (!newName.trim()) return;
+    setCharacter((prev) => {
+      const nextTraits = [...prev.traits];
+      nextTraits[index] = newName.trim();
+      return {
+        ...prev,
+        traits: nextTraits,
+      };
+    });
+    setEditingTraitIndex(null);
+    setEditingTraitText("");
+  };
+
+  const handleDeleteTrait = (index: number) => {
+    setCharacter((prev) => ({
+      ...prev,
+      traits: prev.traits.filter((_, idx) => idx !== index),
+    }));
+    if (editingTraitIndex === index) {
+      setEditingTraitIndex(null);
+      setEditingTraitText("");
+    }
+  };
 
   useEffect(() => {
     if (showSaveModal) {
@@ -161,6 +445,36 @@ export default function GameScreen({
   // Bottom scroll reference for narrative area
   const storyEndRef = useRef<HTMLDivElement>(null);
 
+  // Dynamic Attribute definition lookup
+  const getAttrDef = (key: string): AttributeDefinition => {
+    const list =
+      character.attributeDefinitions || DEFAULT_ATTRIBUTE_DEFINITIONS;
+    return (
+      list.find((d) => d.key === key) || {
+        key,
+        name: key === "none" ? "常规" : key,
+        abbr: key === "none" ? "常" : key.slice(0, 2),
+        desc: "",
+      }
+    );
+  };
+
+  const getAttrLabel = (key: string): string => {
+    const def = getAttrDef(key);
+    return def.name;
+  };
+
+  // 实时评估当前判定行动所激活的天赋特质与数值加成
+  const activeTraitResult: TraitEvaluationResult = useMemo(() => {
+    if (!activeChoiceForRoll) return { totalBonus: 0, triggeredTraits: [] };
+    return evaluateTraitBonus(
+      character.traits,
+      activeChoiceForRoll.attribute,
+      getAttrDef(activeChoiceForRoll.attribute),
+      activeChoiceForRoll.text,
+    );
+  }, [character.traits, activeChoiceForRoll]);
+
   // Autosave to localStorage on state changes
   useEffect(() => {
     const saveState = {
@@ -173,7 +487,7 @@ export default function GameScreen({
       currentChoices,
       isGameOver,
       gameEndingType,
-      gmPersonality,
+      gmPersonality: activeGmPersonality,
       turnCount,
       lastActionText,
       lastDiceRoll,
@@ -188,6 +502,7 @@ export default function GameScreen({
     currentChoices,
     isGameOver,
     gameEndingType,
+    activeGmPersonality,
     turnCount,
     lastActionText,
     lastDiceRoll,
@@ -196,16 +511,6 @@ export default function GameScreen({
   // Calculate standard DND modifier based on attribute score
   const getModifier = (score: number) => {
     return Math.floor((score - 10) / 2);
-  };
-
-  // Human readable attribute names
-  const ATTRIBUTE_LABELS: Record<string, string> = {
-    strength: "力量 (STR)",
-    agility: "敏捷 (AGI)",
-    intelligence: "智力 (INT)",
-    charisma: "魅力 (CHA)",
-    willpower: "意志 (WIL)",
-    luck: "运气 (LCK)",
   };
 
   // Save game slot manually
@@ -221,7 +526,7 @@ export default function GameScreen({
         currentChoices,
         isGameOver,
         gameEndingType,
-        gmPersonality,
+        gmPersonality: activeGmPersonality,
         turnCount,
         lastActionText,
         lastDiceRoll,
@@ -278,19 +583,24 @@ export default function GameScreen({
         longTermHistory,
         choiceOrAction: actionText,
         diceRoll: finalRoll || null,
-        gmPersonality,
+        gmPersonality: activeGmPersonality,
         guidancePrompt,
       };
 
       const data = await generateEventAPI(payload);
 
       // Formulate history turn to append
+      const traitBonusInfo =
+        finalRoll && finalRoll.traitBonus
+          ? ` + 天赋修正 ${finalRoll.traitBonus > 0 ? "+" : ""}${finalRoll.traitBonus}${finalRoll.triggeredTraits?.length ? ` [${finalRoll.triggeredTraits.map((t: any) => t.name).join("、")}]` : ""}`
+          : "";
+
       const newHistoryTurn: HistoryTurn = {
         turn: activeTurnCount,
         narrative: activeCurrentEventText,
         choiceOrAction: actionText,
         rollResult: finalRoll
-          ? `[${ATTRIBUTE_LABELS[finalRoll.attributeMatched] || finalRoll.attributeMatched} 检定：掷骰 ${finalRoll.rollValue} + 修正 ${finalRoll.modifier} = ${finalRoll.total} vs 难度 ${finalRoll.targetDc}] -> ${finalRoll.isSuccess ? "成功" : "失败"}`
+          ? `[${getAttrLabel(finalRoll.attributeMatched)} 检定：掷骰 ${finalRoll.rollValue} + 属性修正 ${finalRoll.modifier >= 0 ? "+" : ""}${finalRoll.modifier}${traitBonusInfo} = ${finalRoll.total} vs 难度 ${finalRoll.targetDc}] -> ${finalRoll.isSuccess ? "成功" : "失败"}`
           : undefined,
         gmCommentary: activeGmCommentary,
         diceRoll: finalRoll || null, // Store raw dice roll for regeneration support
@@ -318,6 +628,36 @@ export default function GameScreen({
         }
       }
 
+      // Process dynamic trait evolution from story
+      let updatedTraits = [...character.traits];
+      if (data.traitChanges) {
+        const added = data.traitChanges.added || [];
+        const removed = data.traitChanges.removed || [];
+        if (added.length > 0) {
+          added.forEach((t: string) => {
+            if (!updatedTraits.includes(t)) {
+              updatedTraits.push(t);
+            }
+          });
+        }
+        if (removed.length > 0) {
+          updatedTraits = updatedTraits.filter(
+            (item) =>
+              !removed.some(
+                (rem: string) => item.includes(rem) || rem.includes(item),
+              ),
+          );
+        }
+        if (added.length > 0 || removed.length > 0) {
+          setTraitNotice({
+            isOpen: true,
+            added,
+            removed,
+            reason: data.traitChanges.reason || "在跌宕起伏的冒险中触发了心智特质变迁",
+          });
+        }
+      }
+
       // Update character sheet stats with constraints
       const updatedCharacter: Character = {
         ...character,
@@ -336,6 +676,7 @@ export default function GameScreen({
           ),
         ),
         inventory: updatedInventory,
+        traits: updatedTraits,
       };
 
       // Set new page states
@@ -474,11 +815,10 @@ export default function GameScreen({
     e.preventDefault();
     if (isLoading || !customActionText.trim()) return;
 
-    // Optional: Ask if the player wants to do a Luck/Luck check for custom action or just roll
-    // Let's prompt a custom check based on "Luck" attribute for custom actions, which is incredibly fun!
+    const luckDef = getAttrDef("luck");
     const customChoice: RecommendedChoice = {
       text: customActionText.trim(),
-      difficulty: "运气 检定 (DC 12)",
+      difficulty: `${luckDef.name} 检定（难度 12）`,
       actionType: "check",
       attribute: "luck",
       targetDc: 12,
@@ -514,11 +854,11 @@ export default function GameScreen({
     const attributeKey = activeChoiceForRoll.attribute;
     const attributeScore =
       attributeKey !== "none"
-        ? character.attributes[attributeKey as keyof Character["attributes"]] ||
-          10
+        ? character.attributes[attributeKey] ?? 10
         : 10;
     const modifier = getModifier(attributeScore);
-    const total = finalD20 + modifier;
+    const traitBonus = activeTraitResult.totalBonus;
+    const total = finalD20 + modifier + traitBonus;
     const isSuccess = total >= activeChoiceForRoll.targetDc;
 
     setDiceValue(finalD20);
@@ -534,17 +874,19 @@ export default function GameScreen({
     const attributeKey = activeChoiceForRoll.attribute;
     const attributeScore =
       attributeKey !== "none"
-        ? character.attributes[attributeKey as keyof Character["attributes"]] ||
-          10
+        ? character.attributes[attributeKey] ?? 10
         : 10;
     const modifier = getModifier(attributeScore);
 
     const rollData = {
       rollValue: diceValue,
       modifier: modifier,
+      traitBonus: activeTraitResult.totalBonus,
+      triggeredTraits: activeTraitResult.triggeredTraits,
       total: totalRollResult,
       targetDc: activeChoiceForRoll.targetDc,
       attributeMatched: attributeKey,
+      attributeName: getAttrLabel(attributeKey),
       isSuccess: rollSuccess,
     };
 
@@ -585,15 +927,38 @@ export default function GameScreen({
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-          <div>
+          <div className="flex items-center flex-wrap gap-2">
             <span className="text-xs font-semibold px-2 py-0.5 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-400 rounded">
               {genre}
             </span>
-            <span className="text-xs text-zinc-500 ml-2">
+            <span
+              onClick={handleTurnCounterClick}
+              className="text-xs text-zinc-500 ml-2 select-none cursor-pointer"
+            >
               回合: #{turnCount - 1}
             </span>
+            {isDevMode && (
+              <span className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-amber-500/15 border border-amber-500/30 text-amber-700 dark:text-amber-400 rounded text-[10px] font-bold font-mono animate-fadeIn ml-1">
+                <Wrench className="w-3 h-3 text-amber-500" />
+                开发者模式
+                <button
+                  type="button"
+                  onClick={() => setShowDevModal(true)}
+                  className="px-1.5 py-0.5 bg-amber-500 text-zinc-950 rounded hover:bg-amber-400 text-[9px] font-bold cursor-pointer"
+                >
+                  控制台
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsDevMode(false)}
+                  className="text-zinc-400 hover:text-red-500 p-0.5 cursor-pointer"
+                >
+                  <X className="w-3 h-3" />
+                </button>
+              </span>
+            )}
             {isLoading && (
-              <span className="ml-3 inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-md text-[10px] font-bold animate-pulse">
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-amber-500/10 border border-amber-500/20 text-amber-600 dark:text-amber-400 rounded-md text-[10px] font-bold animate-pulse">
                 <RefreshCw className="w-2.5 h-2.5 animate-spin" />
                 AI构思中...
               </span>
@@ -608,15 +973,23 @@ export default function GameScreen({
             </span>
           )}
           <button
+            onClick={() => setShowGmSettingsModal(true)}
+            className="p-2 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg hover:bg-amber-500 hover:text-zinc-900 transition-all flex items-center gap-1.5 font-semibold cursor-pointer"
+            title="查看或调整当前AI主持人人设风格"
+          >
+            <Settings className="w-4 h-4 text-amber-600" />
+            主持人风格
+          </button>
+          <button
             onClick={() => setShowSaveModal(true)}
-            className="p-2 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg hover:bg-amber-500 hover:text-zinc-900 transition-all flex items-center gap-1.5 font-semibold"
+            className="p-2 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg hover:bg-amber-500 hover:text-zinc-900 transition-all flex items-center gap-1.5 font-semibold cursor-pointer"
           >
             <Save className="w-4 h-4" />
             保存进度
           </button>
           <button
             onClick={handleRestart}
-            className="p-2 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg hover:bg-red-500 hover:text-white transition-all flex items-center gap-1.5 font-semibold"
+            className="p-2 text-xs bg-zinc-100 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded-lg hover:bg-red-500 hover:text-white transition-all flex items-center gap-1.5 font-semibold cursor-pointer"
           >
             <RefreshCw className="w-4 h-4" />
             重置游戏
@@ -690,43 +1063,523 @@ export default function GameScreen({
               </div>
             </div>
 
-            {/* Health & Sanity progress bars */}
+            {/* Health & Sanity & Custom status progress bars (支持开发者模式增删改) */}
             <div className="space-y-3">
-              {/* Primary resource bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  <span>{character.resourceName || "主要资源"}</span>
-                  <span className="text-amber-700 dark:text-amber-500">
-                    {character.hp} / {character.maxHp}
+              {isDevMode && (
+                <div className="flex items-center justify-between text-[11px] font-bold text-amber-600 dark:text-amber-400 bg-amber-500/10 border border-amber-500/30 p-2 rounded-xl">
+                  <span className="flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5" />
+                    状态条管理
                   </span>
-                </div>
-                <div className="w-full bg-zinc-100 dark:bg-zinc-950 h-3 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-900">
-                  <div
-                    className="bg-red-500 h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${(character.hp / character.maxHp) * 100}%`,
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingStatusBar(true);
+                      setNewBarForm({ name: "行动点 (AP)", current: 3, max: 3, color: "blue" });
                     }}
-                  />
+                    className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
+                  >
+                    <Plus className="w-3 h-3" />
+                    新增状态条
+                  </button>
                 </div>
-              </div>
+              )}
 
-              {/* Secondary resource bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  <span>{character.secondaryResourceName || "次要资源"}</span>
-                  <span className="text-purple-700 dark:text-purple-400">
-                    {character.sanity} / {character.maxSanity}
-                  </span>
+              {/* Inline Add Status Bar Form */}
+              {isDevMode && isAddingStatusBar && (
+                <div className="p-3 bg-zinc-50 dark:bg-zinc-950 rounded-xl border-2 border-dashed border-amber-500/50 space-y-2.5 text-xs animate-fadeIn">
+                  <div className="font-bold text-zinc-800 dark:text-zinc-200 flex items-center justify-between text-xs">
+                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <Plus className="w-3.5 h-3.5" /> 新建状态条 (如 AP / 护盾 / 气力)
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingStatusBar(false)}
+                      className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-zinc-500 block mb-0.5">状态名</label>
+                    <input
+                      type="text"
+                      value={newBarForm.name}
+                      onChange={(e) => setNewBarForm({ ...newBarForm, name: e.target.value })}
+                      placeholder="如: 行动点 (AP), 护盾, 气力, 怒气..."
+                      className="w-full px-2.5 py-1 text-xs rounded-lg border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    />
+                  </div>
+                  <div className="grid grid-cols-3 gap-2">
+                    <div>
+                      <label className="text-[10px] text-zinc-500 block mb-0.5">当前值</label>
+                      <input
+                        type="number"
+                        value={newBarForm.current}
+                        onChange={(e) => setNewBarForm({ ...newBarForm, current: Number(e.target.value) })}
+                        className="w-full px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-500 block mb-0.5">上限</label>
+                      <input
+                        type="number"
+                        value={newBarForm.max}
+                        onChange={(e) => setNewBarForm({ ...newBarForm, max: Number(e.target.value) })}
+                        className="w-full px-2 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-zinc-500 block mb-0.5">色彩</label>
+                      <select
+                        value={newBarForm.color}
+                        onChange={(e) => setNewBarForm({ ...newBarForm, color: e.target.value })}
+                        className="w-full px-1.5 py-1 text-xs rounded border border-zinc-200 dark:border-zinc-700 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                      >
+                        <option value="blue">蓝色 (AP/法力)</option>
+                        <option value="amber">琥珀 (气力/怒气)</option>
+                        <option value="cyan">青色 (护盾/灵力)</option>
+                        <option value="emerald">翠绿 (体力/韧性)</option>
+                        <option value="purple">紫色 (理智/真元)</option>
+                        <option value="red">红色 (生命/血量)</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex justify-end gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingStatusBar(false)}
+                      className="px-2.5 py-1 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded text-xs font-semibold"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAddCustomStatusBar(newBarForm.name, newBarForm.current, newBarForm.max, newBarForm.color)}
+                      className="px-3 py-1 bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold rounded text-xs"
+                    >
+                      确认添加
+                    </button>
+                  </div>
                 </div>
-                <div className="w-full bg-zinc-100 dark:bg-zinc-950 h-3 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-900">
+              )}
+
+              {/* 1. Primary resource bar (HP) */}
+              {(character.resourceName !== "" || character.maxHp > 0) && (
+                <div className="space-y-1 bg-zinc-50/50 dark:bg-zinc-950/40 p-2 rounded-xl border border-zinc-150 dark:border-zinc-850">
+                  {editingStatusBarId === "primary" ? (
+                    <div className="space-y-2 p-1">
+                      <div className="text-[10px] font-bold text-red-600 dark:text-red-400">编辑主状态条</div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <div className="col-span-3">
+                          <input
+                            type="text"
+                            value={editingBarForm.name}
+                            onChange={(e) => setEditingBarForm({ ...editingBarForm, name: e.target.value })}
+                            className="w-full px-2 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                            placeholder="主状态名称"
+                          />
+                        </div>
+                        <div>
+                          <input
+                            type="number"
+                            value={editingBarForm.current}
+                            onChange={(e) => setEditingBarForm({ ...editingBarForm, current: Number(e.target.value) })}
+                            className="w-full px-1.5 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                            placeholder="当前值"
+                          />
+                        </div>
+                        <div>
+                          <input
+                            type="number"
+                            value={editingBarForm.max}
+                            onChange={(e) => setEditingBarForm({ ...editingBarForm, max: Number(e.target.value) })}
+                            className="w-full px-1.5 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                            placeholder="上限"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdatePrimaryBar(editingBarForm.name, editingBarForm.current, editingBarForm.max)}
+                            className="p-1 bg-green-600 hover:bg-green-700 text-white rounded"
+                            title="保存修改"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingStatusBarId(null)}
+                            className="p-1 bg-zinc-400 hover:bg-zinc-500 text-white rounded"
+                            title="取消"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-red-500" />
+                          {character.resourceName || "主要资源"}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-red-700 dark:text-red-400 font-mono font-bold">
+                            {character.hp} / {character.maxHp}
+                          </span>
+                          {isDevMode && (
+                            <div className="flex items-center gap-0.5 ml-1">
+                              <button
+                                type="button"
+                                onClick={() => stepStatusBarValue("primary", -5)}
+                                className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-red-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400"
+                                title="-5"
+                              >
+                                -5
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => stepStatusBarValue("primary", -1)}
+                                className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-red-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400"
+                                title="-1"
+                              >
+                                <Minus className="w-2.5 h-2.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => stepStatusBarValue("primary", 1)}
+                                className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-green-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400"
+                                title="+1"
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => stepStatusBarValue("primary", 5)}
+                                className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-green-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400"
+                                title="+5"
+                              >
+                                +5
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingStatusBarId("primary");
+                                  setEditingBarForm({
+                                    name: character.resourceName || "生命值",
+                                    current: character.hp,
+                                    max: character.maxHp,
+                                    color: "red",
+                                  });
+                                }}
+                                className="p-0.5 text-zinc-400 hover:text-amber-500 rounded"
+                                title="编辑此状态条"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="w-full bg-zinc-100 dark:bg-zinc-950 h-2.5 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-900">
+                        <div
+                          className="bg-red-500 h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${Math.min(100, Math.max(0, (character.hp / Math.max(1, character.maxHp)) * 100))}%`,
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* 2. Secondary resource bar (Sanity / MP) */}
+              {(character.secondaryResourceName !== "" && character.maxSanity > 0) && (
+                <div className="space-y-1 bg-zinc-50/50 dark:bg-zinc-950/40 p-2 rounded-xl border border-zinc-150 dark:border-zinc-850">
+                  {editingStatusBarId === "secondary" ? (
+                    <div className="space-y-2 p-1">
+                      <div className="text-[10px] font-bold text-purple-600 dark:text-purple-400">编辑次状态条</div>
+                      <div className="grid grid-cols-3 gap-1.5">
+                        <div className="col-span-3">
+                          <input
+                            type="text"
+                            value={editingBarForm.name}
+                            onChange={(e) => setEditingBarForm({ ...editingBarForm, name: e.target.value })}
+                            className="w-full px-2 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                            placeholder="次状态名称"
+                          />
+                        </div>
+                        <div>
+                          <input
+                            type="number"
+                            value={editingBarForm.current}
+                            onChange={(e) => setEditingBarForm({ ...editingBarForm, current: Number(e.target.value) })}
+                            className="w-full px-1.5 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                            placeholder="当前值"
+                          />
+                        </div>
+                        <div>
+                          <input
+                            type="number"
+                            value={editingBarForm.max}
+                            onChange={(e) => setEditingBarForm({ ...editingBarForm, max: Number(e.target.value) })}
+                            className="w-full px-1.5 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                            placeholder="上限"
+                          />
+                        </div>
+                        <div className="flex items-center gap-1 justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleUpdateSecondaryBar(editingBarForm.name, editingBarForm.current, editingBarForm.max)}
+                            className="p-1 bg-green-600 hover:bg-green-700 text-white rounded"
+                            title="保存修改"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setEditingStatusBarId(null)}
+                            className="p-1 bg-zinc-400 hover:bg-zinc-500 text-white rounded"
+                            title="取消"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex justify-between items-center text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                        <span className="flex items-center gap-1">
+                          <span className="w-2 h-2 rounded-full bg-purple-500" />
+                          {character.secondaryResourceName || "次要资源"}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-purple-700 dark:text-purple-400 font-mono font-bold">
+                            {character.sanity} / {character.maxSanity}
+                          </span>
+                          {isDevMode && (
+                            <div className="flex items-center gap-0.5 ml-1">
+                              <button
+                                type="button"
+                                onClick={() => stepStatusBarValue("secondary", -5)}
+                                className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-purple-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400"
+                                title="-5"
+                              >
+                                -5
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => stepStatusBarValue("secondary", -1)}
+                                className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-purple-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400"
+                                title="-1"
+                              >
+                                <Minus className="w-2.5 h-2.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => stepStatusBarValue("secondary", 1)}
+                                className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-green-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400"
+                                title="+1"
+                              >
+                                <Plus className="w-2.5 h-2.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => stepStatusBarValue("secondary", 5)}
+                                className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-green-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400"
+                                title="+5"
+                              >
+                                +5
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingStatusBarId("secondary");
+                                  setEditingBarForm({
+                                    name: character.secondaryResourceName || "理智值",
+                                    current: character.sanity,
+                                    max: character.maxSanity,
+                                    color: "purple",
+                                  });
+                                }}
+                                className="p-0.5 text-zinc-400 hover:text-amber-500 rounded"
+                                title="编辑此状态条"
+                              >
+                                <Edit3 className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={handleDeleteSecondaryBar}
+                                className="p-0.5 text-zinc-400 hover:text-red-500 rounded"
+                                title="删除/隐藏次状态条"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                              </button>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                      <div className="w-full bg-zinc-100 dark:bg-zinc-950 h-2.5 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-900">
+                        <div
+                          className="bg-purple-500 h-full rounded-full transition-all duration-500"
+                          style={{
+                            width: `${Math.min(100, Math.max(0, (character.sanity / Math.max(1, character.maxSanity)) * 100))}%`,
+                          }}
+                        />
+                      </div>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* 3. Custom status bars (AP, 护盾, 气力等，支持增删改) */}
+              {(character.customStatusBars || []).map((bar) => {
+                const colorCfg = getStatusBarColorConfig(bar.color);
+                const isEditing = editingStatusBarId === bar.id;
+                return (
                   <div
-                    className="bg-purple-500 h-full rounded-full transition-all duration-500"
-                    style={{
-                      width: `${(character.sanity / character.maxSanity) * 100}%`,
-                    }}
-                  />
-                </div>
-              </div>
+                    key={bar.id}
+                    className="space-y-1 bg-zinc-50/50 dark:bg-zinc-950/40 p-2 rounded-xl border border-zinc-150 dark:border-zinc-850"
+                  >
+                    {isEditing ? (
+                      <div className="space-y-2 p-1">
+                        <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400">编辑状态条: {bar.name}</div>
+                        <div className="grid grid-cols-3 gap-1.5">
+                          <div className="col-span-2">
+                            <input
+                              type="text"
+                              value={editingBarForm.name}
+                              onChange={(e) => setEditingBarForm({ ...editingBarForm, name: e.target.value })}
+                              className="w-full px-2 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                              placeholder="状态名"
+                            />
+                          </div>
+                          <div>
+                            <select
+                              value={editingBarForm.color}
+                              onChange={(e) => setEditingBarForm({ ...editingBarForm, color: e.target.value })}
+                              className="w-full px-1.5 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                            >
+                              <option value="blue">蓝色</option>
+                              <option value="amber">琥珀</option>
+                              <option value="cyan">青色</option>
+                              <option value="emerald">翠绿</option>
+                              <option value="purple">紫色</option>
+                              <option value="red">红色</option>
+                            </select>
+                          </div>
+                          <div>
+                            <input
+                              type="number"
+                              value={editingBarForm.current}
+                              onChange={(e) => setEditingBarForm({ ...editingBarForm, current: Number(e.target.value) })}
+                              className="w-full px-1.5 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                              placeholder="当前值"
+                            />
+                          </div>
+                          <div>
+                            <input
+                              type="number"
+                              value={editingBarForm.max}
+                              onChange={(e) => setEditingBarForm({ ...editingBarForm, max: Number(e.target.value) })}
+                              className="w-full px-1.5 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700"
+                              placeholder="上限"
+                            />
+                          </div>
+                          <div className="flex items-center gap-1 justify-end">
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateCustomStatusBar(bar.id, editingBarForm.name, editingBarForm.current, editingBarForm.max, editingBarForm.color)}
+                              className="p-1 bg-green-600 hover:bg-green-700 text-white rounded cursor-pointer"
+                              title="保存修改"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingStatusBarId(null)}
+                              className="p-1 bg-zinc-400 hover:bg-zinc-500 text-white rounded cursor-pointer"
+                              title="取消"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="flex justify-between items-center text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                          <span className="flex items-center gap-1">
+                            <span className={`w-2 h-2 rounded-full ${colorCfg.bar}`} />
+                            {bar.name}
+                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className={`${colorCfg.text} font-mono font-bold`}>
+                              {bar.current} / {bar.max}
+                            </span>
+                            {isDevMode && (
+                              <div className="flex items-center gap-0.5 ml-1">
+                                <button
+                                  type="button"
+                                  onClick={() => stepStatusBarValue(bar.id, -1)}
+                                  className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-amber-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400 cursor-pointer"
+                                  title="-1"
+                                >
+                                  <Minus className="w-2.5 h-2.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => stepStatusBarValue(bar.id, 1)}
+                                  className="p-0.5 px-1 bg-zinc-200 dark:bg-zinc-800 hover:bg-green-200 text-[10px] rounded text-zinc-600 dark:text-zinc-400 cursor-pointer"
+                                  title="+1"
+                                >
+                                  <Plus className="w-2.5 h-2.5" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingStatusBarId(bar.id);
+                                    setEditingBarForm({
+                                      name: bar.name,
+                                      current: bar.current,
+                                      max: bar.max,
+                                      color: bar.color || "blue",
+                                    });
+                                  }}
+                                  className="p-0.5 text-zinc-400 hover:text-amber-500 rounded cursor-pointer"
+                                  title="编辑此状态条"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteCustomStatusBar(bar.id)}
+                                  className="p-0.5 text-zinc-400 hover:text-red-500 rounded cursor-pointer"
+                                  title="删除此状态条"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                        <div className="w-full bg-zinc-100 dark:bg-zinc-950 h-2.5 rounded-full overflow-hidden border border-zinc-200 dark:border-zinc-900">
+                          <div
+                            className={`${colorCfg.bar} h-full rounded-full transition-all duration-500`}
+                            style={{
+                              width: `${Math.min(100, Math.max(0, (bar.current / Math.max(1, bar.max)) * 100))}%`,
+                            }}
+                          />
+                        </div>
+                      </>
+                    )}
+                  </div>
+                );
+              })}
             </div>
 
             {/* Attributes modifiers list */}
@@ -735,18 +1588,20 @@ export default function GameScreen({
                 核心技能与属性检定修正
               </span>
               <div className="grid grid-cols-2 gap-2 text-xs">
-                {Object.entries(character.attributes).map(([key, val]) => {
+                {(character.attributeDefinitions || DEFAULT_ATTRIBUTE_DEFINITIONS).map((def) => {
+                  const val = character.attributes[def.key] ?? 10;
                   const mod = getModifier(val);
                   return (
                     <div
-                      key={key}
+                      key={def.key}
                       className="p-2 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-150/40 dark:border-zinc-900/60 flex items-center justify-between"
+                      title={def.desc}
                     >
                       <div>
-                        <div className="text-[10px] text-zinc-400 font-bold">
-                          {ATTRIBUTE_LABELS[key] || key}
+                        <div className="text-[10px] text-zinc-400 font-bold flex items-center gap-1">
+                          <span>{def.name}</span>
                         </div>
-                        <div className="text-zinc-800 dark:text-zinc-200 font-extrabold text-sm">
+                        <div className="text-zinc-800 dark:text-zinc-200 font-extrabold text-sm tabular-nums">
                           {val}
                         </div>
                       </div>
@@ -789,21 +1644,146 @@ export default function GameScreen({
               )}
             </div>
 
-            {/* Character Traits */}
+            {/* Character Traits (支持开发者模式增删改) */}
             <div className="space-y-2 pt-2">
-              <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                天赋特质
-              </span>
-              <div className="space-y-1.5">
-                {character.traits.map((trait, index) => (
-                  <div
-                    key={index}
-                    className="text-xs p-2 bg-amber-50/20 dark:bg-amber-950/5 text-amber-900 dark:text-amber-400 rounded-lg border border-amber-200/20 font-medium"
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                  天赋特质 ({character.traits.length})
+                </span>
+                {isDevMode && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingTrait(true);
+                      setNewTraitText("");
+                    }}
+                    className="px-2 py-0.5 bg-amber-500 hover:bg-amber-400 text-zinc-950 rounded text-[10px] font-bold flex items-center gap-0.5 transition-colors cursor-pointer"
                   >
-                    ✦ {trait}
-                  </div>
-                ))}
+                    <Plus className="w-3 h-3" />
+                    添加特质
+                  </button>
+                )}
               </div>
+
+              {/* Inline Add Trait Form */}
+              {isDevMode && isAddingTrait && (
+                <div className="p-2.5 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-amber-500/40 space-y-2 animate-fadeIn">
+                  <div className="text-[10px] font-bold text-amber-600 dark:text-amber-400 flex items-center justify-between">
+                    <span>添加新天赋特质</span>
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingTrait(false)}
+                      className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                  <input
+                    type="text"
+                    value={newTraitText}
+                    onChange={(e) => setNewTraitText(e.target.value)}
+                    placeholder="如: 百步穿杨、天生神力、洞察先机..."
+                    className="w-full px-2.5 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") handleAddTrait(newTraitText);
+                    }}
+                    autoFocus
+                  />
+                  <div className="flex justify-end gap-1.5">
+                    <button
+                      type="button"
+                      onClick={() => setIsAddingTrait(false)}
+                      className="px-2 py-0.5 bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 rounded text-[11px]"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleAddTrait(newTraitText)}
+                      className="px-2.5 py-0.5 bg-amber-500 hover:bg-amber-600 text-zinc-950 font-bold rounded text-[11px]"
+                    >
+                      确认添加
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Trait items list */}
+              {character.traits.length === 0 ? (
+                <div className="text-xs text-zinc-400 text-center py-3 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-dashed">
+                  暂无天赋特质
+                </div>
+              ) : (
+                <div className="space-y-1.5">
+                  {character.traits.map((trait, index) => {
+                    const isEditing = editingTraitIndex === index;
+                    return (
+                      <div
+                        key={index}
+                        className="text-xs p-2 bg-amber-50/20 dark:bg-amber-950/5 text-amber-900 dark:text-amber-400 rounded-lg border border-amber-200/20 font-medium group transition-all"
+                      >
+                        {isEditing ? (
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="text"
+                              value={editingTraitText}
+                              onChange={(e) => setEditingTraitText(e.target.value)}
+                              className="flex-1 px-2 py-1 text-xs rounded border bg-white dark:bg-zinc-900 border-zinc-300 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") handleUpdateTrait(index, editingTraitText);
+                              }}
+                              autoFocus
+                            />
+                            <button
+                              type="button"
+                              onClick={() => handleUpdateTrait(index, editingTraitText)}
+                              className="p-1 bg-green-600 hover:bg-green-700 text-white rounded cursor-pointer"
+                              title="保存修改"
+                            >
+                              <Check className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEditingTraitIndex(null)}
+                              className="p-1 bg-zinc-400 hover:bg-zinc-500 text-white rounded cursor-pointer"
+                              title="取消"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        ) : (
+                          <div className="flex items-center justify-between">
+                            <span>✦ {trait}</span>
+                            {isDevMode && (
+                              <div className="flex items-center gap-1 ml-2">
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingTraitIndex(index);
+                                    setEditingTraitText(trait);
+                                  }}
+                                  className="p-0.5 text-zinc-400 hover:text-amber-500 rounded cursor-pointer"
+                                  title="编辑特质"
+                                >
+                                  <Edit3 className="w-3 h-3" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleDeleteTrait(index)}
+                                  className="p-0.5 text-zinc-400 hover:text-red-500 rounded cursor-pointer"
+                                  title="删除特质"
+                                >
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
 
@@ -966,9 +1946,6 @@ export default function GameScreen({
                 </span>
 
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-xs text-zinc-400 mr-2">
-                    TURN {turnCount - 1}
-                  </span>
                   {!isGameOver && (
                     <div className="flex items-center gap-1">
                       <button
@@ -1032,14 +2009,34 @@ export default function GameScreen({
                 </div>
               )}
 
-              {/* AI GM Commentary whisper box */}
-              {currentGmCommentary && (
-                <div className="bg-amber-100/30 dark:bg-amber-950/5 p-4 rounded-xl border border-amber-200/20 text-xs text-amber-900 dark:text-amber-400/90 leading-relaxed space-y-1">
-                  <div className="font-bold flex items-center gap-1">
-                    <Heart className="w-3.5 h-3.5 fill-amber-500 text-amber-500" />
-                    主持人悄悄话 (GM Whispers):
+              {/* Dynamic Trait Evolution Notice (移至文末，无标题、无关闭按钮) */}
+              {traitNotice && (traitNotice.added.length > 0 || traitNotice.removed.length > 0) && (
+                <div className="mt-4 pt-3 border-t border-amber-900/10 dark:border-zinc-800/80 space-y-2">
+                  {traitNotice.reason && (
+                    <p className="text-xs text-zinc-600 dark:text-zinc-400 italic leading-relaxed">
+                      ✦ {traitNotice.reason}
+                    </p>
+                  )}
+                  <div className="flex flex-wrap gap-2 text-xs">
+                    {traitNotice.added.map((trait, idx) => (
+                      <span
+                        key={`add-${idx}`}
+                        className="px-2.5 py-1 bg-emerald-500/15 border border-emerald-500/30 text-emerald-800 dark:text-emerald-300 rounded-lg font-semibold flex items-center gap-1 shadow-xs"
+                      >
+                        <Star className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                        获得：{trait}
+                      </span>
+                    ))}
+                    {traitNotice.removed.map((trait, idx) => (
+                      <span
+                        key={`rem-${idx}`}
+                        className="px-2.5 py-1 bg-rose-500/15 border border-rose-500/30 text-rose-800 dark:text-rose-300 rounded-lg font-semibold flex items-center gap-1 shadow-xs"
+                      >
+                        <Trash className="w-3.5 h-3.5 text-rose-600 dark:text-rose-400" />
+                        失去/转化：{trait}
+                      </span>
+                    ))}
                   </div>
-                  <p>{currentGmCommentary}</p>
                 </div>
               )}
             </div>
@@ -1054,7 +2051,7 @@ export default function GameScreen({
                 <div className="flex items-center gap-2">
                   <Dice5 className="w-5 h-5 text-amber-400 animate-pulse" />
                   <h4 className="text-sm font-bold tracking-wide uppercase">
-                    TRPG 骰点判定：D20 掷骰挑战
+                    跑团检定：二十面骰挑战
                   </h4>
                 </div>
                 <button
@@ -1081,12 +2078,11 @@ export default function GameScreen({
                     <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
                       <span className="text-zinc-400 block">检定属性</span>
                       <strong className="text-sm text-zinc-100">
-                        {ATTRIBUTE_LABELS[activeChoiceForRoll.attribute] ||
-                          activeChoiceForRoll.attribute}
+                        {getAttrLabel(activeChoiceForRoll.attribute)}
                       </strong>
                     </div>
                     <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
-                      <span className="text-zinc-400 block">目标难度 DC</span>
+                      <span className="text-zinc-400 block">目标难度</span>
                       <strong className="text-sm text-amber-400 font-bold">
                         {activeChoiceForRoll.targetDc}
                       </strong>
@@ -1094,34 +2090,85 @@ export default function GameScreen({
                     <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
                       <span className="text-zinc-400 block">属性加成修正</span>
                       <strong className="text-sm text-green-400 font-mono font-bold">
-                        +
                         {getModifier(
                           character.attributes[
                             activeChoiceForRoll.attribute as keyof Character["attributes"]
                           ] || 10,
-                        )}
+                        ) >= 0
+                          ? `+${getModifier(
+                              character.attributes[
+                                activeChoiceForRoll.attribute as keyof Character["attributes"]
+                              ] || 10,
+                            )}`
+                          : getModifier(
+                              character.attributes[
+                                activeChoiceForRoll.attribute as keyof Character["attributes"]
+                              ] || 10,
+                            )}
                       </strong>
                     </div>
                     <div className="p-3 bg-zinc-950 rounded-xl border border-zinc-800">
-                      <span className="text-zinc-400 block">通过概率提示</span>
-                      <strong className="text-sm text-zinc-300">
-                        {Math.max(
-                          5,
-                          Math.min(
-                            95,
-                            (21 -
-                              (activeChoiceForRoll.targetDc -
-                                getModifier(
-                                  character.attributes[
-                                    activeChoiceForRoll.attribute as keyof Character["attributes"]
-                                  ] || 10,
-                                ))) *
-                              5,
-                          ),
-                        )}
-                        %
+                      <span className="text-zinc-400 block">天赋特质加成</span>
+                      <strong
+                        className={`text-sm font-mono font-bold ${
+                          activeTraitResult.totalBonus > 0
+                            ? "text-amber-400"
+                            : activeTraitResult.totalBonus < 0
+                              ? "text-red-400"
+                              : "text-zinc-400"
+                        }`}
+                      >
+                        {activeTraitResult.totalBonus > 0
+                          ? `+${activeTraitResult.totalBonus}`
+                          : activeTraitResult.totalBonus}
                       </strong>
                     </div>
+                  </div>
+
+                  {/* Triggered Traits Pill Banner */}
+                  {activeTraitResult.triggeredTraits.length > 0 && (
+                    <div className="p-2.5 bg-amber-500/10 border border-amber-500/30 rounded-xl text-xs space-y-1.5 animate-fadeIn">
+                      <div className="font-bold text-amber-400 flex items-center gap-1.5 text-[11px]">
+                        <Sparkles className="w-3.5 h-3.5" />
+                        <span>已触发天赋特质修正：</span>
+                      </div>
+                      <div className="space-y-1 text-zinc-300">
+                        {activeTraitResult.triggeredTraits.map((t, idx) => (
+                          <div
+                            key={idx}
+                            className="flex items-center justify-between text-[11px]"
+                          >
+                            <span>• 【{t.name}】{t.reason}</span>
+                            <span className="font-mono font-bold text-amber-400">
+                              {t.bonus > 0 ? `+${t.bonus}` : t.bonus}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Comprehensive pass probability hint */}
+                  <div className="flex items-center justify-between px-3 py-2 bg-zinc-950 rounded-xl border border-zinc-800 text-xs">
+                    <span className="text-zinc-400">综合通过概率提示</span>
+                    <strong className="text-sm text-zinc-200 font-mono">
+                      {Math.max(
+                        5,
+                        Math.min(
+                          95,
+                          (21 -
+                            (activeChoiceForRoll.targetDc -
+                              (getModifier(
+                                character.attributes[
+                                  activeChoiceForRoll.attribute as keyof Character["attributes"]
+                                ] || 10,
+                              ) +
+                                activeTraitResult.totalBonus))) *
+                            5,
+                        ),
+                      )}
+                      %
+                    </strong>
                   </div>
                 </div>
 
@@ -1234,14 +2281,32 @@ export default function GameScreen({
                             ? "【 检定成功！ 】"
                             : "【 检定失败！ 】"}
                         </div>
-                        <p className="text-xs text-zinc-400 max-w-xs mx-auto">
+                        <p className="text-xs text-zinc-400 max-w-xs mx-auto leading-relaxed">
                           你掷出了 {diceValue} 点，加上属性修正值{" "}
                           {getModifier(
                             character.attributes[
                               activeChoiceForRoll.attribute as keyof Character["attributes"]
                             ] || 10,
+                          ) >= 0
+                            ? `+${getModifier(
+                                character.attributes[
+                                  activeChoiceForRoll.attribute as keyof Character["attributes"]
+                                ] || 10,
+                              )}`
+                            : getModifier(
+                                character.attributes[
+                                  activeChoiceForRoll.attribute as keyof Character["attributes"]
+                                ] || 10,
+                              )}
+                          {activeTraitResult.totalBonus !== 0 && (
+                            <>
+                              ，以及天赋特质修正{" "}
+                              {activeTraitResult.totalBonus > 0
+                                ? `+${activeTraitResult.totalBonus}`
+                                : activeTraitResult.totalBonus}
+                            </>
                           )}
-                          ，最终成绩为 {totalRollResult} （难度 DC{" "}
+                          ，最终成绩为 {totalRollResult}（目标难度{" "}
                           {activeChoiceForRoll.targetDc}）。
                         </p>
                         <button
@@ -1542,6 +2607,343 @@ export default function GameScreen({
                 className="px-4 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-700 dark:text-zinc-300 rounded-xl text-xs font-semibold transition-colors"
               >
                 取消
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showGmSettingsModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl max-w-md w-full p-6 shadow-2xl border border-zinc-200 dark:border-zinc-800 animate-fadeIn space-y-4">
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-150 dark:border-zinc-800">
+              <h3 className="font-serif font-bold text-lg text-zinc-900 dark:text-zinc-100 flex items-center gap-2">
+                <Settings className="w-5 h-5 text-amber-500" />
+                系统设置：AI 主持人人设风格
+              </h3>
+              <button
+                type="button"
+                onClick={() => setShowGmSettingsModal(false)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <p className="text-xs text-zinc-500 leading-relaxed">
+              主持人人设已从开局创建转移至系统设置。你可以随时在游戏中无损切换叙述调性：
+            </p>
+
+            <div className="space-y-2.5 max-h-[50vh] overflow-y-auto pr-1">
+              {PERSONALITIES.map((pers) => {
+                const isActive = activeGmPersonality === pers.id;
+                return (
+                  <button
+                    key={pers.id}
+                    type="button"
+                    onClick={() => {
+                      setActiveGmPersonality(pers.id);
+                      if (onChangePersonality) onChangePersonality(pers.id);
+                      try {
+                        const curCfg = JSON.parse(
+                          localStorage.getItem("trpg_api_config") || "{}",
+                        );
+                        curCfg.gmPersonality = pers.id;
+                        localStorage.setItem(
+                          "trpg_api_config",
+                          JSON.stringify(curCfg),
+                        );
+                      } catch (e) {}
+                    }}
+                    className={`w-full p-3.5 rounded-xl border text-left transition-all block cursor-pointer ${
+                      isActive
+                        ? "border-amber-500 bg-amber-50/60 dark:bg-amber-950/30 text-amber-900 dark:text-amber-400"
+                        : "border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800/60 text-zinc-700 dark:text-zinc-300"
+                    }`}
+                  >
+                    <div className="text-xs font-bold flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            isActive ? "bg-amber-500" : "bg-zinc-400"
+                          }`}
+                        />
+                        {pers.name}
+                      </span>
+                      {isActive && (
+                        <span className="text-[10px] text-amber-600 font-semibold bg-amber-100 dark:bg-amber-950 px-1.5 py-0.5 rounded">
+                          生效中
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-zinc-500 dark:text-zinc-400 mt-1 leading-relaxed">
+                      {pers.desc}
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="flex justify-end pt-2">
+              <button
+                type="button"
+                onClick={() => setShowGmSettingsModal(false)}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-zinc-900 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                完成
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* DEVELOPER MODE CONSOLE MODAL */}
+      {showDevModal && (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-white dark:bg-zinc-900 rounded-3xl max-w-2xl w-full p-6 shadow-2xl border border-amber-500/30 animate-fadeIn space-y-5 max-h-[85vh] flex flex-col">
+            <div className="flex items-center justify-between pb-3 border-b border-zinc-200 dark:border-zinc-800">
+              <div className="flex items-center gap-2">
+                <Terminal className="w-5 h-5 text-amber-500" />
+                <h3 className="font-serif font-bold text-lg text-zinc-900 dark:text-zinc-100">
+                  开发者模式调试控制台
+                </h3>
+                <span className="px-2 py-0.5 bg-amber-500/15 border border-amber-500/40 text-amber-600 dark:text-amber-400 rounded text-[10px] font-mono font-bold">
+                  DEV ACTIVE
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowDevModal(false)}
+                className="text-zinc-400 hover:text-zinc-600 dark:hover:text-zinc-200 p-1 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-5 pr-1 text-xs">
+              {/* Quick Presets */}
+              <div className="bg-amber-500/10 border border-amber-500/30 p-3 rounded-2xl space-y-2">
+                <span className="font-bold text-amber-800 dark:text-amber-400 text-xs flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5" />
+                  快捷预设与一键注入
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCharacter((prev) => ({
+                        ...prev,
+                        hp: prev.maxHp,
+                        sanity: prev.maxSanity,
+                        customStatusBars: (prev.customStatusBars || []).map((b) => ({
+                          ...b,
+                          current: b.max,
+                        })),
+                      }));
+                    }}
+                    className="px-2.5 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-lg text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+                  >
+                    ⚡ 全状态回满
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddCustomStatusBar("行动点 (AP)", 3, 3, "blue")}
+                    className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+                  >
+                    ＋ 添加 AP (3/3)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddCustomStatusBar("护盾", 30, 30, "cyan")}
+                    className="px-2.5 py-1.5 bg-cyan-600 hover:bg-cyan-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+                  >
+                    ＋ 添加 护盾 (30/30)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddCustomStatusBar("气力/怒气", 100, 100, "amber")}
+                    className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+                  >
+                    ＋ 添加 气力 (100/100)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleAddTrait("天生命定机缘")}
+                    className="px-2.5 py-1.5 bg-purple-600 hover:bg-purple-700 text-white font-semibold rounded-lg text-xs flex items-center gap-1 shadow-xs cursor-pointer"
+                  >
+                    ＋ 赐予特质: 天生命定机缘
+                  </button>
+                </div>
+              </div>
+
+              {/* Status Bars Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-zinc-200 dark:border-zinc-800">
+                  <span className="font-bold text-zinc-900 dark:text-zinc-100 text-xs flex items-center gap-1.5">
+                    <Sliders className="w-3.5 h-3.5 text-amber-500" />
+                    当前所有状态条 ({1 + (character.secondaryResourceName ? 1 : 0) + (character.customStatusBars?.length || 0)})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsAddingStatusBar(true);
+                      setShowDevModal(false);
+                      setActiveTab("character");
+                    }}
+                    className="text-amber-600 dark:text-amber-400 font-bold hover:underline cursor-pointer"
+                  >
+                    ＋ 新建状态条
+                  </button>
+                </div>
+
+                <div className="space-y-2">
+                  {/* Primary */}
+                  <div className="p-2.5 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                    <div>
+                      <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                        {character.resourceName || "主要资源"} (主状态条)
+                      </span>
+                      <div className="text-zinc-500 text-[11px] font-mono">
+                        当前值: {character.hp} / 上限: {character.maxHp}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-1">
+                      <button
+                        type="button"
+                        onClick={() => stepStatusBarValue("primary", -10)}
+                        className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 rounded text-xs cursor-pointer"
+                      >
+                        -10
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => stepStatusBarValue("primary", 10)}
+                        className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 rounded text-xs cursor-pointer"
+                      >
+                        +10
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Secondary */}
+                  {character.secondaryResourceName && character.maxSanity > 0 && (
+                    <div className="p-2.5 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 flex items-center justify-between">
+                      <div>
+                        <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                          {character.secondaryResourceName} (次状态条)
+                        </span>
+                        <div className="text-zinc-500 text-[11px] font-mono">
+                          当前值: {character.sanity} / 上限: {character.maxSanity}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => stepStatusBarValue("secondary", -10)}
+                          className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 rounded text-xs cursor-pointer"
+                        >
+                          -10
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => stepStatusBarValue("secondary", 10)}
+                          className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 rounded text-xs cursor-pointer"
+                        >
+                          +10
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleDeleteSecondaryBar}
+                          className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-zinc-800 rounded cursor-pointer"
+                          title="删除次状态条"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Custom Bars */}
+                  {(character.customStatusBars || []).map((b) => (
+                    <div
+                      key={b.id}
+                      className="p-2.5 bg-zinc-50 dark:bg-zinc-950 rounded-xl border border-zinc-200 dark:border-zinc-800 flex items-center justify-between"
+                    >
+                      <div>
+                        <span className="font-bold text-zinc-800 dark:text-zinc-200">
+                          {b.name} (自定义状态条)
+                        </span>
+                        <div className="text-zinc-500 text-[11px] font-mono">
+                          当前值: {b.current} / 上限: {b.max} ({b.color || "blue"})
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => stepStatusBarValue(b.id, -1)}
+                          className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 rounded text-xs cursor-pointer"
+                        >
+                          -1
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => stepStatusBarValue(b.id, 1)}
+                          className="px-2 py-1 bg-zinc-200 dark:bg-zinc-800 rounded text-xs cursor-pointer"
+                        >
+                          +1
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteCustomStatusBar(b.id)}
+                          className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-zinc-800 rounded cursor-pointer"
+                          title="删除状态条"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Traits Section */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between pb-1 border-b border-zinc-200 dark:border-zinc-800">
+                  <span className="font-bold text-zinc-900 dark:text-zinc-100 text-xs flex items-center gap-1.5">
+                    <Star className="w-3.5 h-3.5 text-amber-500" />
+                    当前天赋特质 ({character.traits.length})
+                  </span>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {character.traits.map((t, idx) => (
+                    <span
+                      key={idx}
+                      className="px-2.5 py-1 bg-amber-50 dark:bg-zinc-950 border border-amber-200/40 text-amber-900 dark:text-amber-400 rounded-lg flex items-center gap-1.5 font-medium"
+                    >
+                      ✦ {t}
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteTrait(idx)}
+                        className="text-zinc-400 hover:text-red-500 ml-1 cursor-pointer"
+                        title="删除特质"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </span>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            <div className="flex items-center justify-between pt-3 border-t border-zinc-200 dark:border-zinc-800">
+              <span className="text-[11px] text-zinc-400">
+                提示：在侧栏“人物属性卡”中也可以随时直接点击铅笔或加减按钮进行实时编辑
+              </span>
+              <button
+                type="button"
+                onClick={() => setShowDevModal(false)}
+                className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-zinc-950 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+              >
+                完成退出控制台
               </button>
             </div>
           </div>

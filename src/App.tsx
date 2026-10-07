@@ -1,15 +1,13 @@
 import React, { useState, useEffect } from "react";
 import { saveAs } from "file-saver";
-import { GameState, Character, HistoryTurn } from "./types";
+import { GameState, Character, HistoryTurn, PERSONALITIES } from "./types";
 import CharacterCreator from "./components/CharacterCreator";
 import GameScreen from "./components/GameScreen";
 import {
   Sparkles,
-  BookOpen,
   Scroll,
   HelpCircle,
   Swords,
-  Award,
   FileText,
   ChevronRight,
   RefreshCw,
@@ -32,6 +30,7 @@ export default function App() {
   const [activeCharacter, setActiveCharacter] = useState<Character | null>(
     null,
   );
+  const [gmPersonality, setGmPersonality] = useState("Dramatic");
   const [activePersonality, setActivePersonality] = useState("Dramatic");
   const [activeInitialEvent, setActiveInitialEvent] = useState<any>(null);
   const [activeHistory, setActiveHistory] = useState<HistoryTurn[]>([]);
@@ -101,6 +100,10 @@ export default function App() {
         if (config.openaiApiKey) setOpenaiApiKey(config.openaiApiKey);
         if (config.openaiApiUrl) setOpenaiApiUrl(config.openaiApiUrl);
         if (config.openaiModel) setOpenaiModel(config.openaiModel);
+        if (config.gmPersonality) {
+          setGmPersonality(config.gmPersonality);
+          setActivePersonality(config.gmPersonality);
+        }
       }
     } catch (e) {
       console.error("Error loading API config", e);
@@ -118,8 +121,10 @@ export default function App() {
         openaiApiKey,
         openaiApiUrl: openaiApiUrl || "https://api.openai.com/v1",
         openaiModel: openaiModel || "gpt-4o",
+        gmPersonality,
       };
       localStorage.setItem("trpg_api_config", JSON.stringify(config));
+      setActivePersonality(gmPersonality);
       setApiSaveSuccess(true);
       setTimeout(() => setApiSaveSuccess(false), 3000);
     } catch (err) {
@@ -251,7 +256,6 @@ export default function App() {
   const handleCreatorComplete = (
     genre: string,
     character: Character,
-    gmPersonality: string,
     initialEvent: any,
   ) => {
     setActiveGenre(genre);
@@ -418,14 +422,16 @@ export default function App() {
                 主页大厅
               </button>
             )}
-            <a
-              href="https://github.com"
-              target="_blank"
-              rel="noreferrer noopener"
-              className="text-zinc-400 hover:text-zinc-600 transition-colors hidden sm:block"
+            <button
+              onClick={() => {
+                if (currentScreen !== "home") setCurrentScreen("home");
+                setShowApiSettings(true);
+              }}
+              className="text-zinc-600 dark:text-zinc-300 hover:text-amber-600 dark:hover:text-amber-400 flex items-center gap-1 transition-colors"
             >
-              开源框架
-            </a>
+              <Settings className="w-3.5 h-3.5" />
+              <span>系统设置</span>
+            </button>
           </div>
         </div>
       </header>
@@ -438,18 +444,10 @@ export default function App() {
             id="home-screen"
           >
             {/* HERO LANDING SLIDE */}
-            <div className="text-center space-y-4 max-w-2xl mx-auto">
-              <div className="inline-flex items-center gap-1.5 px-3 py-1 bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-400 rounded-full text-xs font-bold shadow-sm mb-2">
-                <Sparkles className="w-3.5 h-3.5" />
-                简体中文纯AI跑团宿命之旅
-              </div>
+            <div className="text-center max-w-2xl mx-auto pb-2">
               <h1 className="font-serif text-5xl md:text-6xl font-extrabold tracking-tight text-amber-900 dark:text-amber-500 leading-tight">
                 掌握你自己的命运
               </h1>
-              <p className="text-zinc-600 dark:text-zinc-400 text-sm md:text-base leading-relaxed">
-                这是一个完全运行于本地浏览器的单人跑团模拟器与文字角色扮演游戏框架。通过将角色设定、属性数值与强大的
-                Gemini AI 相融合，为您动态铺开浩瀚的多维世界。
-              </p>
             </div>
 
             {/* ACTION TRIGGERS PANEL */}
@@ -460,7 +458,7 @@ export default function App() {
               >
                 <div className="flex items-center gap-3">
                   <Swords className="w-5 h-5 text-zinc-950" />
-                  <span>开启全新跑团冒险 (New Adventure)</span>
+                  <span>开启全新跑团冒险</span>
                 </div>
                 <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
               </button>
@@ -472,7 +470,7 @@ export default function App() {
                 >
                   <div className="flex items-center gap-3">
                     <Scroll className="w-5 h-5 text-amber-600" />
-                    <span>继续上次的自动存档 (Autosave)</span>
+                    <span>继续上次的自动存档</span>
                   </div>
                   <ChevronRight className="w-4 h-4 transition-transform group-hover:translate-x-1" />
                 </button>
@@ -568,7 +566,7 @@ export default function App() {
                 )}
               </div>
 
-              {/* API ENGINE CONFIGURATION */}
+              {/* SYSTEM AND API ENGINE CONFIGURATION */}
               <div className="pt-2 text-center border-t border-zinc-100 dark:border-zinc-800/60 mt-4 pt-4">
                 <button
                   onClick={() => setShowApiSettings(!showApiSettings)}
@@ -576,293 +574,299 @@ export default function App() {
                 >
                   <Settings className="w-3.5 h-3.5" />
                   {showApiSettings
-                    ? "隐藏高级接口配置"
-                    : "自选 DeepSeek / 高级接口配置"}
+                    ? "收起系统设置"
+                    : "系统设置（主持人人设与接口配置）"}
                 </button>
 
                 {showApiSettings && (
-                  <div className="mt-4 p-5 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-left space-y-4 animate-fadeIn text-xs">
-                    <div className="flex items-center gap-2 pb-1 border-b border-zinc-150 dark:border-zinc-900">
-                      <Cpu className="w-4 h-4 text-amber-500" />
-                      <span className="font-bold text-zinc-700 dark:text-zinc-300">
-                        大模型引擎配置
-                      </span>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                        选择 AI 引擎
-                      </label>
-                      <div className="grid grid-cols-3 gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setModelEngine("gemini")}
-                          className={`py-2 px-3 rounded-lg border font-semibold text-center transition-all ${
-                            modelEngine === "gemini"
-                              ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/15 text-amber-800 dark:text-amber-400"
-                              : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                          }`}
-                        >
-                          Gemini (官方默认)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setModelEngine("deepseek")}
-                          className={`py-2 px-3 rounded-lg border font-semibold text-center transition-all ${
-                            modelEngine === "deepseek"
-                              ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/15 text-amber-800 dark:text-amber-400"
-                              : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                          }`}
-                        >
-                          DeepSeek
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setModelEngine("openai")}
-                          className={`py-2 px-3 rounded-lg border font-semibold text-center transition-all ${
-                            modelEngine === "openai"
-                              ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/15 text-amber-800 dark:text-amber-400"
-                              : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
-                          }`}
-                        >
-                          OpenAI / GPT
-                        </button>
+                  <div className="mt-4 p-5 bg-zinc-50 dark:bg-zinc-950 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-left space-y-5 animate-fadeIn text-xs">
+                    {/* GM PERSONALITY SECTION */}
+                    <div className="space-y-2.5 pb-4 border-b border-zinc-200 dark:border-zinc-850">
+                      <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-amber-500" />
+                        <span className="font-bold text-zinc-800 dark:text-zinc-200 text-sm">
+                          跑团主持人 (GM) 叙事风格
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">
+                        全局指定 AI 主持人的行文风格与叙事调性，可在游玩前或游玩中随时生效。
+                      </p>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5 pt-1">
+                        {PERSONALITIES.map((pers) => {
+                          const isSelected = gmPersonality === pers.id;
+                          return (
+                            <div
+                              key={pers.id}
+                              onClick={() => setGmPersonality(pers.id)}
+                              className={`p-3 rounded-xl border text-left cursor-pointer transition-all ${
+                                isSelected
+                                  ? "border-amber-500 bg-amber-500/10 text-amber-900 dark:text-amber-300 shadow-sm"
+                                  : "border-zinc-200 dark:border-zinc-800 hover:border-zinc-300 dark:hover:border-zinc-700 text-zinc-700 dark:text-zinc-400 bg-white dark:bg-zinc-900"
+                              }`}
+                            >
+                              <div className="text-xs font-bold mb-1 flex items-center justify-between">
+                                <span>{pers.name}</span>
+                                {isSelected && (
+                                  <span className="text-[10px] bg-amber-500 text-zinc-950 px-1.5 py-0.2 rounded font-bold">
+                                    选用中
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-[10px] text-zinc-500 dark:text-zinc-400 line-clamp-2 leading-relaxed">
+                                {pers.desc}
+                              </div>
+                            </div>
+                          );
+                        })}
                       </div>
                     </div>
 
-                    {modelEngine === "deepseek" ? (
-                      <div className="space-y-3 pt-1 animate-fadeIn">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                            DeepSeek API 密钥 (Key)
-                          </label>
-                          <div className="relative">
+                    {/* AI ENGINE SECTION */}
+                    <div className="space-y-4">
+                      <div className="flex items-center gap-2 pb-1 border-b border-zinc-150 dark:border-zinc-900">
+                        <Cpu className="w-4 h-4 text-amber-500" />
+                        <span className="font-bold text-zinc-700 dark:text-zinc-300">
+                          大模型引擎配置
+                        </span>
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                          选择 AI 引擎
+                        </label>
+                        <div className="grid grid-cols-3 gap-2">
+                          <button
+                            type="button"
+                            onClick={() => setModelEngine("gemini")}
+                            className={`py-2 px-3 rounded-lg border font-semibold text-center transition-all ${
+                              modelEngine === "gemini"
+                                ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/15 text-amber-800 dark:text-amber-400"
+                                : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                            }`}
+                          >
+                            Gemini 引擎
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setModelEngine("deepseek")}
+                            className={`py-2 px-3 rounded-lg border font-semibold text-center transition-all ${
+                              modelEngine === "deepseek"
+                                ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/15 text-amber-800 dark:text-amber-400"
+                                : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                            }`}
+                          >
+                            DeepSeek 引擎
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setModelEngine("openai")}
+                            className={`py-2 px-3 rounded-lg border font-semibold text-center transition-all ${
+                              modelEngine === "openai"
+                                ? "border-amber-500 bg-amber-50/50 dark:bg-amber-950/15 text-amber-800 dark:text-amber-400"
+                                : "border-zinc-200 dark:border-zinc-800 text-zinc-500 hover:bg-zinc-100 dark:hover:bg-zinc-900"
+                            }`}
+                          >
+                            OpenAI 引擎
+                          </button>
+                        </div>
+                      </div>
+
+                      {modelEngine === "deepseek" ? (
+                        <div className="space-y-3 pt-1 animate-fadeIn">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              DeepSeek 接口密钥
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showDsKey ? "text" : "password"}
+                                value={deepseekApiKey}
+                                onChange={(e) =>
+                                  setDeepseekApiKey(e.target.value)
+                                }
+                                placeholder="sk-..."
+                                className="w-full text-xs p-2.5 pr-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowDsKey(!showDsKey)}
+                                className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600"
+                              >
+                                {showDsKey ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              接口节点请求地址
+                            </label>
                             <input
-                              type={showDsKey ? "text" : "password"}
-                              value={deepseekApiKey}
-                              onChange={(e) =>
-                                setDeepseekApiKey(e.target.value)
-                              }
-                              placeholder="sk-..."
-                              className="w-full text-xs p-2.5 pr-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              type="text"
+                              value={deepseekApiUrl}
+                              onChange={(e) => setDeepseekApiUrl(e.target.value)}
+                              placeholder="https://api.deepseek.com"
+                              className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
                             />
-                            <button
-                              type="button"
-                              onClick={() => setShowDsKey(!showDsKey)}
-                              className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600"
-                            >
-                              {showDsKey ? (
-                                <EyeOff className="w-3.5 h-3.5" />
-                              ) : (
-                                <Eye className="w-3.5 h-3.5" />
-                              )}
-                            </button>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              模型代号
+                            </label>
+                            <input
+                              type="text"
+                              value={deepseekModel}
+                              onChange={(e) => setDeepseekModel(e.target.value)}
+                              placeholder="deepseek-v4-pro"
+                              className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
                           </div>
                         </div>
+                      ) : modelEngine === "openai" ? (
+                        <div className="space-y-3 pt-1 animate-fadeIn">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              OpenAI 接口密钥
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showOpenaiKey ? "text" : "password"}
+                                value={openaiApiKey}
+                                onChange={(e) =>
+                                  setOpenaiApiKey(e.target.value)
+                                }
+                                placeholder="sk-..."
+                                className="w-full text-xs p-2.5 pr-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowOpenaiKey(!showOpenaiKey)}
+                                className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600"
+                              >
+                                {showOpenaiKey ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                          </div>
 
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                            API 节点请求地址 (Base URL)
-                          </label>
-                          <input
-                            type="text"
-                            value={deepseekApiUrl}
-                            onChange={(e) => setDeepseekApiUrl(e.target.value)}
-                            placeholder="https://api.deepseek.com"
-                            className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                            模型名称 (Model)
-                          </label>
-                          <input
-                            type="text"
-                            value={deepseekModel}
-                            onChange={(e) => setDeepseekModel(e.target.value)}
-                            placeholder="deepseek-v4-pro"
-                            className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                          />
-                        </div>
-                      </div>
-                    ) : modelEngine === "openai" ? (
-                      <div className="space-y-3 pt-1 animate-fadeIn">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                            OpenAI API 密钥 (Key)
-                          </label>
-                          <div className="relative">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              接口节点请求地址
+                            </label>
                             <input
-                              type={showOpenaiKey ? "text" : "password"}
-                              value={openaiApiKey}
-                              onChange={(e) =>
-                                setOpenaiApiKey(e.target.value)
-                              }
-                              placeholder="sk-..."
-                              className="w-full text-xs p-2.5 pr-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              type="text"
+                              value={openaiApiUrl}
+                              onChange={(e) => setOpenaiApiUrl(e.target.value)}
+                              placeholder="https://api.openai.com/v1"
+                              className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
                             />
-                            <button
-                              type="button"
-                              onClick={() => setShowOpenaiKey(!showOpenaiKey)}
-                              className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600"
-                            >
-                              {showOpenaiKey ? (
-                                <EyeOff className="w-3.5 h-3.5" />
-                              ) : (
-                                <Eye className="w-3.5 h-3.5" />
-                              )}
-                            </button>
+                          </div>
+
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              模型代号
+                            </label>
+                            <input
+                              type="text"
+                              value={openaiModel}
+                              onChange={(e) => setOpenaiModel(e.target.value)}
+                              placeholder="gpt-4o"
+                              className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                            />
                           </div>
                         </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                            API 节点请求地址 (Base URL)
-                          </label>
-                          <input
-                            type="text"
-                            value={openaiApiUrl}
-                            onChange={(e) => setOpenaiApiUrl(e.target.value)}
-                            placeholder="https://api.openai.com/v1"
-                            className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                          />
-                        </div>
-
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                            模型名称 (Model)
-                          </label>
-                          <input
-                            type="text"
-                            value={openaiModel}
-                            onChange={(e) => setOpenaiModel(e.target.value)}
-                            placeholder="gpt-4o"
-                            className="w-full text-xs p-2.5 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                          />
-                        </div>
-                      </div>
-                    ) : (
-                      <div className="space-y-3 pt-1 animate-fadeIn">
-                        <div className="space-y-1">
-                          <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
-                            Gemini API 密钥 (Key)
-                          </label>
-                          <div className="relative">
-                            <input
-                              type={showGeminiKey ? "text" : "password"}
-                              value={geminiApiKey}
-                              onChange={(e) => setGeminiApiKey(e.target.value)}
-                              placeholder="AIza..."
-                              className="w-full text-xs p-2.5 pr-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowGeminiKey(!showGeminiKey)}
-                              className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600"
-                            >
-                              {showGeminiKey ? (
-                                <EyeOff className="w-3.5 h-3.5" />
-                              ) : (
-                                <Eye className="w-3.5 h-3.5" />
-                              )}
-                            </button>
+                      ) : (
+                        <div className="space-y-3 pt-1 animate-fadeIn">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-wider block">
+                              Gemini 接口密钥
+                            </label>
+                            <div className="relative">
+                              <input
+                                type={showGeminiKey ? "text" : "password"}
+                                value={geminiApiKey}
+                                onChange={(e) => setGeminiApiKey(e.target.value)}
+                                placeholder="AIza..."
+                                className="w-full text-xs p-2.5 pr-8 rounded-lg border border-zinc-200 dark:border-zinc-800 bg-white dark:bg-zinc-900 text-zinc-800 dark:text-zinc-200 focus:outline-none focus:ring-1 focus:ring-amber-500"
+                              />
+                              <button
+                                type="button"
+                                onClick={() => setShowGeminiKey(!showGeminiKey)}
+                                className="absolute right-2.5 top-2.5 text-zinc-400 hover:text-zinc-600"
+                              >
+                                {showGeminiKey ? (
+                                  <EyeOff className="w-3.5 h-3.5" />
+                                ) : (
+                                  <Eye className="w-3.5 h-3.5" />
+                                )}
+                              </button>
+                            </div>
+                            <p className="text-[10px] text-zinc-500 mt-1">
+                              可前往官方平台申请免费接口密钥。
+                            </p>
                           </div>
-                          <p className="text-[10px] text-zinc-500 mt-1">
-                            需前往 Google AI Studio 免费申请 API 密钥。
-                          </p>
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="pt-2 space-y-2">
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={handleCheckConnection}
-                          disabled={connCheckStatus === "checking"}
-                          className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg font-bold text-center transition-colors text-xs flex items-center justify-center gap-1 disabled:opacity-50"
-                        >
-                          {connCheckStatus === "checking" ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <RefreshCw className="w-3.5 h-3.5" />
-                          )}
-                          测试连接
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleSaveApiConfig}
-                          className="flex-[2] py-2 bg-amber-500 hover:bg-amber-600 text-zinc-950 rounded-lg font-bold text-center transition-colors text-xs"
-                        >
-                          保存接口配置到本地
-                        </button>
-                      </div>
-
-                      {connCheckMsg && (
-                        <div
-                          className={`mt-2 text-[11px] font-bold text-center animate-fadeIn ${connCheckStatus === "success" ? "text-green-600" : "text-red-500"}`}
-                        >
-                          {connCheckMsg}
                         </div>
                       )}
-                      {apiSaveSuccess && (
-                        <div className="mt-2 text-[11px] text-green-600 font-bold text-center animate-fadeIn">
-                          ✓ 配置已成功缓存于本地浏览器！
+
+                      <div className="pt-2 space-y-2">
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={handleCheckConnection}
+                            disabled={connCheckStatus === "checking"}
+                            className="flex-1 py-2 bg-zinc-100 hover:bg-zinc-200 dark:bg-zinc-800 dark:hover:bg-zinc-700 text-zinc-800 dark:text-zinc-200 rounded-lg font-bold text-center transition-colors text-xs flex items-center justify-center gap-1 disabled:opacity-50"
+                          >
+                            {connCheckStatus === "checking" ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <RefreshCw className="w-3.5 h-3.5" />
+                            )}
+                            测试连接
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleSaveApiConfig}
+                            className="flex-[2] py-2 bg-amber-500 hover:bg-amber-600 text-zinc-950 rounded-lg font-bold text-center transition-colors text-xs"
+                          >
+                            保存系统设置到本地
+                          </button>
                         </div>
-                      )}
+
+                        {connCheckMsg && (
+                          <div
+                            className={`mt-2 text-[11px] font-bold text-center animate-fadeIn ${connCheckStatus === "success" ? "text-green-600" : "text-red-500"}`}
+                          >
+                            {connCheckMsg}
+                          </div>
+                        )}
+                        {apiSaveSuccess && (
+                          <div className="mt-2 text-[11px] text-green-600 font-bold text-center animate-fadeIn">
+                            ✓ 系统设置与主持人人设已成功保存！
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* FEATURES SHOWCASE */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6 pt-6">
-              <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center space-y-2">
-                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-500 flex items-center justify-center mx-auto mb-3">
-                  <BookOpen className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-sm text-zinc-800 dark:text-zinc-200">
-                  智能协商设定
-                </h3>
-                <p className="text-xs text-zinc-500 leading-relaxed">
-                  提供玄幻修仙、赛博朋克等多种世界模板，亦能定制背景，让 AI
-                  主持人对你的人设进行点评、润色和配置建议。
-                </p>
-              </div>
-
-              <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center space-y-2">
-                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-500 flex items-center justify-center mx-auto mb-3">
-                  <Swords className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-sm text-zinc-800 dark:text-zinc-200">
-                  真实 DND 骰点
-                </h3>
-                <p className="text-xs text-zinc-500 leading-relaxed">
-                  经典 DND 力量、敏捷等六维属性。包含 D20
-                  掷骰和属性加成修正机制。骰运高低真实干预剧情。
-                </p>
-              </div>
-
-              <div className="bg-white dark:bg-zinc-900 p-6 rounded-2xl border border-zinc-200 dark:border-zinc-800 text-center space-y-2">
-                <div className="w-10 h-10 rounded-full bg-amber-100 dark:bg-amber-950/40 text-amber-800 dark:text-amber-500 flex items-center justify-center mx-auto mb-3">
-                  <Award className="w-5 h-5" />
-                </div>
-                <h3 className="font-bold text-sm text-zinc-800 dark:text-zinc-200">
-                  无限可能分支
-                </h3>
-                <p className="text-xs text-zinc-500 leading-relaxed">
-                  除推荐行动外，支持完全自由输入你想执行的任何脑洞操作，AI
-                  主持人将无缝接轨编织属于你的专属篇章。
-                </p>
-              </div>
-            </div>
           </div>
         )}
 
         {currentScreen === "creator" && (
-          <CharacterCreator onComplete={handleCreatorComplete} />
+          <CharacterCreator
+            onComplete={handleCreatorComplete}
+            systemPersonality={gmPersonality}
+          />
         )}
 
         {currentScreen === "game" && activeCharacter && activeInitialEvent && (
@@ -877,16 +881,13 @@ export default function App() {
             initialLastActionText={activeLastActionText}
             initialLastDiceRoll={activeLastDiceRoll}
             onExit={() => setCurrentScreen("home")}
+            onChangePersonality={(pers) => {
+              setActivePersonality(pers);
+              setGmPersonality(pers);
+            }}
           />
         )}
       </main>
-
-      {/* Decorative footer */}
-      <footer className="border-t border-zinc-200 dark:border-zinc-900 py-6 text-center text-[10px] text-zinc-400">
-        <p>
-          © 2026 AI跑团模拟器与文字RPG游戏框架 | 纯真中式跑团乐趣与无限叙事引擎
-        </p>
-      </footer>
 
       {confirmDialog.isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
